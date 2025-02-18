@@ -1,6 +1,6 @@
 {
     "name": "CYW4343W_t4",
-    "description": "SdFat modified for testing the Murata 1DX / CYW4343W WiFi chip on uSDHC1 and uSDHC2 on a Teensy 4.1 and custom Teensy boards",
+    "description": "Library for testing the Murata 1DX / CYW4343W WiFi chip on uSDHC1 and uSDHC2 on a Teensy 4.1 and custom Teensy boards. SdFat used as starting point",
     "keywords": "ethernet, wifi, teensy",
     "authors": [
       {
@@ -11,11 +11,11 @@
     ],
     "repository": {
       "type": "git",
-      "url": "https://github.com/ssilverman/QNEthernet"
+      "url": "https://github.com/egonbeermat/CYW4343W_t4"
     },
     "version": "0.1.0",
     "license": "AGPL-3.0-or-later",
-    "homepage": "https://github.com/ssilverman/QNEthernet",
+    "homepage": "https://github.com/egonbeermat/CYW4343W_t4",
     "frameworks": "arduino",
     "platforms": "*"
 }
