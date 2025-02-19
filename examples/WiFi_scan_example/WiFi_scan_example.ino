@@ -14,9 +14,10 @@ void setup()
   //Begin parameters: 
   //SDIO1 (false), SDIO2 (true)
   //WL_REG_ON pin 
-  //EXT_LPO pin (optional)
+  //WL_IRQ pin (-1 to ignore)
+  //EXT_LPO pin (optional, -1 to ignore)
   //////////////////////////////////////////
-  if (wifiCard.begin(false, 27) == true) { 
+  if (wifiCard.begin(false, 27, -1, -1) == true) { 
     Serial.println("initialization done");
 
     wifiCard.getMACAddress();

@@ -94,7 +94,7 @@ class W4343WCard  {
    * \param[in] useSDIO2 SDIO card configuration.
    * \return true for success or false for failure.
    */
-  bool begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin = -1);
+  bool begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t extLPOPin = -1);
 
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
     uint32_t __attribute__((error("use sectorCount()"))) cardSize();
@@ -139,7 +139,7 @@ class W4343WCard  {
   uint32_t m_curSector;
   uint8_t m_curState = IDLE_STATE;
   static volatile bool fUseSDIO2;
-  #if defined(__IMXRT1062__)
+
   // move helper functions into class.
   typedef bool (W4343WCard::*pcheckfcn)();
   bool cardCommand(uint32_t xfertyp, uint32_t arg);
@@ -165,7 +165,11 @@ class W4343WCard  {
   ////////////////////
  void makeSDIO_DAT1();
  void makeGPIO_DAT1();
+ bool SDIOEnableFunction(uint8_t functionNumber);
+ bool SDIODisableFunction(uint8_t functionNumber);
+ bool configureOOBInterrupt();
  static volatile bool dataISRReceived;
+ static void onWLIRQInterruptHandler();
  static void onDataInterruptHandler();
  bool prepareDataTransfer(uint8_t *buffer, uint16_t length) ;
  bool completeDataTransfer() ;
@@ -228,8 +232,6 @@ class W4343WCard  {
   uint32_t m_ocr;
   cid_t m_cid;
   csd_t m_csd;
-
-#endif
 };
 
 #endif  // SdioCard_h

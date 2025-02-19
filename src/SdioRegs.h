@@ -21,6 +21,7 @@
 #define SD_FUNC_RAD     2
 
 //Read/write block sizes
+#define SD_BUS_BLK_BYTES    32
 #define SD_BAK_BLK_BYTES    64
 #define SD_RAD_BLK_BYTES    512
 
@@ -41,23 +42,33 @@
 #define BUS_SPEED_CTRL_REG      0x013   // SDIOD_CCCR_SPEED_CONTROL Bus speed control  
 #define BUS_BRCM_CARDCAP        0x0f0   // SDIOD_CCCR_BRCM_CARDCAP
 #define BUS_BRCM_CARDCTRL       0x0f1   // SDIO_CCCR_BRCM_CARDCTRL
+#define BUS_SEP_INT_CTL         0x0f2   // SDIOD_SEP_INT_CTL //IRW added
 #define SDIO_CCCR_BRCM_CARDCTRL_WLANRESET 1 << 1 //BIT(1)
+#define BUS_SDIO_BLKSIZE_REG    0x010   // SDIOD_CCCR_F0BLKSIZE_0   SDIO blocksize //IRW added
 #define BUS_BAK_BLKSIZE_REG     0x110   // SDIOD_CCCR_F1BLKSIZE_0   Backplane blocksize 
 #define BUS_RAD_BLKSIZE_REG     0x210   // SDIOD_CCCR_F2BLKSIZE_0   WiFi radio blocksize
 
 // Backplane config registers
 #define BAK_WIN_ADDR_REG        0x1000a // SDIO_BACKPLANE_ADDRESS_LOW Window addr 
 #define BAK_CHIP_CLOCK_CSR_REG  0x1000e // SDIO_CHIP_CLOCK_CSR      Chip clock ctrl 
-/*
-                                ForceALP	=	0x01,	// active low-power clock 
-                                ForceHT		= 	0x02,	// high throughput clock 
-                                ForceILP	=	0x04,	// idle low-power clock 
-                                ReqALP		=	0x08,
-                                ReqHT		=	0x10,
-                                Nohwreq		=	0x20,
-                                ALPavail	=	0x40,
-                                HTavail		=	0x80,
-*/
+
+// SDIO_CHIP_CLOCK_CSR bits
+#define SBSDIO_HT_AVAIL            0x80
+#define SBSDIO_ALP_AVAIL           0x40 
+#define SBSDIO_FORCE_HW_CLKREQ_OFF 0x20
+#define SBSDIO_HT_AVAIL_REQ        0x10
+#define SBSDIO_ALP_AVAIL_REQ       0x08
+#define SBSDIO_FORCE_ILP           0x04           // Idle low-power clock
+#define SBSDIO_FORCE_HT            (uint32_t)0x02 // High throughput clock 
+#define SBSDIO_FORCE_ALP           0x01           // Active low-power clock 
+
+// For OOB interrupts
+#define SDIO_CCCR_BRCM_SEPINT_MASK 1 << 0  // BIT(0)
+#define SDIO_CCCR_BRCM_SEPINT_OE   1 << 1  // BIT(1)
+#define SDIO_CCCR_IEN_FUNC0 1 << 0  // BIT(0)
+#define SDIO_CCCR_IEN_FUNC1 1 << 1  // BIT(1)
+#define SDIO_CCCR_IEN_FUNC2 1 << 2  // BIT(2)
+
 #define BAK_PULLUP_REG          0x1000f // SDIO_PULL_UP             Pullups
 #define BAK_WAKEUP_REG          0x1001e // SDIO_WAKEUP_CTRL
 

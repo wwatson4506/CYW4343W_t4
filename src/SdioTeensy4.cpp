@@ -27,7 +27,6 @@
  //Broadcom full MAC driver source used for reference:
  //https://github.com/torvalds/linux/releases/tag/v5.6-rc4
 
-#if defined(__IMXRT1062__)
 #include <Arduino.h>
 #include "SdioTeensy4.h"
 #include "SdCardInfo.h"
@@ -47,11 +46,13 @@
 //Zero firmware and NVRAM
 /////////////////////////
 #define FIRMWARE_LEN 0x5EE84
-#include "../firmware/brcmfmac43430-sdio.c"
+#include "../firmware/brcmfmac43430-sdio.c" // Oct 23 2017 03:55:53 version 7.45.98.38
 extern const unsigned char firmware_bin[FIRMWARE_LEN];
 
 //Configuration for brcmfmac43430-sdio
-//Note - removed 4 bytes representing size from the end of this. Calculated in code.
+//Note - removed 4 bytes representing size from the end of this. Calculated in code
+//boardflags3 - needs to change depending on internal or external LPO clock
+//Changed muxenab to 0x11 from 0x1 to allow INT chip to function
 uint8_t config_data[] = 
 "manfid=0x2d0\0""prodid=0x0726\0""vendid=0x14e4\0""devid=0x43e2\0"
 "boardtype=0x0726\0""boardrev=0x1202\0""boardnum=22\0""macaddr=00:90:4c:c5:12:38\0"
@@ -68,7 +69,7 @@ uint8_t config_data[] =
 "mcsbw202gpo=0x77711111\0""propbw202gpo=0xdd\0""ofdmdigfilttype=18\0"
 "ofdmdigfilttypebe=18\0""papdmode=1\0""papdvalidtest=1\0""pacalidx2g=32\0"
 "papdepsoffset=-36\0""papdendidx=61\0""il0macaddr=00:90:4c:c5:12:38\0"
-"wl0id=0x431b\0""deadman_to=0xffffffff\0""muxenab=0x1\0""spurconfig=0x3 \0"
+"wl0id=0x431b\0""deadman_to=0xffffffff\0""muxenab=0x11\0""spurconfig=0x3 \0"
 "btc_mode=1\0""btc_params8=0x4e20\0""btc_params1=0x7530\0""\0\0\0\0";
 int config_len = sizeof(config_data) - 1;
 /////////////////////////
@@ -79,14 +80,14 @@ int config_len = sizeof(config_data) - 1;
 //////////////////////////
 #include "../firmware/wifi_nvram_1dx.h"
 
-#include "../firmware/w4343WA1_7_45_98_102_combined.h"
-#define FIRMWARE_LEN CYW43_WIFI_FW_LEN
-char * firmware_bin = (char *)w4343WA1_7_45_98_102_combined;
+//#include "../firmware/w4343WA1_7_45_98_102_combined.h" // Jun 18 2020 08:48:22 version 7.45.98.102 
+//#define FIRMWARE_LEN CYW43_WIFI_FW_LEN
+//char * firmware_bin = (char *)w4343WA1_7_45_98_102_combined;
 
 //CYW43 Other firmware:
-//#include "../firmware/w4343WA1_7_45_98_50_combined.h"
-//#define FIRMWARE_LEN CYW43_WIFI_FW_LEN
-//char * firmware_bin = (char *)w4343WA1_7_45_98_50_combined;
+#include "../firmware/w4343WA1_7_45_98_50_combined.h" // Apr 30 2018 04:14:19 version 7.45.98.50
+#define FIRMWARE_LEN CYW43_WIFI_FW_LEN
+char * firmware_bin = (char *)w4343WA1_7_45_98_50_combined;
 
 
 
@@ -543,7 +544,7 @@ uint32_t W4343WCard::backplaneWindow_read32(uint32_t addr, uint32_t *valp)
   uint32_t n;
 
   setBackplaneWindow(addr);
-  n = cardCMD53_read(SD_FUNC_BAK, addr | SB_32BIT_WIN, u32d.bytes, 4);
+  n = cardCMD53_read(SD_FUNC_BAK, addr | SB_32BIT_WIN, u32d.bytes, 4, false);
   *valp = u32d.uint32;
   return n;
 }
@@ -554,7 +555,7 @@ uint32_t W4343WCard::backplaneWindow_write32(uint32_t addr, uint32_t val)
   u32Data u32d={.uint32=val};
 
   setBackplaneWindow(addr);
-  return cardCMD53_write(SD_FUNC_BAK, addr | SB_32BIT_WIN, u32d.bytes, 4);
+  return cardCMD53_write(SD_FUNC_BAK, addr | SB_32BIT_WIN, u32d.bytes, 4, false);
 }
 
 // Can be used from the CYW43 driver to validate input data for firmware
@@ -758,7 +759,6 @@ void W4343WCard::ScanNetworks()
   }
 
   while (1) {
-    delay(1000);
     uint32_t n = ioctl_get_event(&ieh, eventbuff, sizeof(eventbuff));
     
     if (n > sizeof(escan_result)) {
@@ -867,7 +867,7 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
   if (wr)
     memcpy(&cmdp->data[namelen], data, dlen);
   // Send IOCTL command
-  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, txlen, true);
+  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, txlen, false);
   ioctl_wait(IOCTL_WAIT_USEC);
   while (wait_msec >= 0 && ret == 0) {
     // Wait for response to be available
@@ -878,7 +878,7 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
       // ..request response
       backplaneWindow_write32(SB_INT_STATUS_REG, val);
       // Fetch response
-      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp, txlen, true);
+      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp, txlen, false);
 
       // Discard response if not matching request
       if ((rsp->cmd.flags>>16) != ioctl_reqid) {
@@ -1096,17 +1096,78 @@ bool W4343WCard::waitTransferComplete() {
   return true;
 }
 
+bool W4343WCard::SDIOEnableFunction(uint8_t functionNumber)
+{
+  uint8_t readResponse;
+
+  //Read existing register
+  cardCMD52_read(SD_FUNC_BUS, BUS_IOEN_REG, &readResponse);
+
+  //Set function enable
+  readResponse |= 1 << functionNumber;
+
+  //Write back register
+  cardCMD52_write(SD_FUNC_BUS, BUS_IOEN_REG, readResponse);
+
+  //TODO validate written?
+  Serial.printf(SER_TRACE "SDIO function %d enabled\n" SER_RESET, functionNumber);
+  return true;
+}
+
+bool W4343WCard::SDIODisableFunction(uint8_t functionNumber)
+{
+  uint8_t readResponse;
+
+  //Read existing register
+  cardCMD52_read(SD_FUNC_BUS, BUS_IOEN_REG, &readResponse);
+
+  //Set function disable
+  readResponse &= ~(1 << functionNumber);
+
+  //Write back register
+  cardCMD52_write(SD_FUNC_BUS, BUS_IOEN_REG, readResponse);
+
+  //TODO validate written?
+  Serial.printf(SER_TRACE "SDIO function %d disabled\n" SER_RESET, functionNumber);
+  return true;
+}
+
+//bcmsdh.c, line 95, brcmf_sdiod_intr_register
+bool W4343WCard::configureOOBInterrupt()
+{
+  uint8_t readResponse;
+  Serial.println(SER_ERROR "Configuring WL_IRQ OOB" SER_RESET);
+  // Must configure BUS_INTEN_REG to enable irq
+  cardCMD52_read(SD_FUNC_BUS, BUS_INTEN_REG, &readResponse);
+  readResponse |= SDIO_CCCR_IEN_FUNC0 | SDIO_CCCR_IEN_FUNC1 | SDIO_CCCR_IEN_FUNC2;
+  cardCMD52_write(SD_FUNC_BUS, BUS_INTEN_REG, readResponse);
+
+  // Redirect, configure and enable IO for interrupt signal
+  readResponse = SDIO_CCCR_BRCM_SEPINT_MASK | SDIO_CCCR_BRCM_SEPINT_OE;
+  cardCMD52_write(SD_FUNC_BUS, BUS_SEP_INT_CTL, readResponse);
+
+  //TODO any validation?
+  return true;
+}
+
+void W4343WCard::onWLIRQInterruptHandler()
+{
+  dataISRReceived = true;
+  //Yeah yeah, no Serial in ISRs, I know....
+  Serial.println(SER_MAGENTA "WL_IRQ OOB Interrupt" SER_RESET);
+}
+
 void W4343WCard::onDataInterruptHandler()
 {
   dataISRReceived = true;
   //Yeah yeah, no Serial in ISRs, I know....
-  //Serial.println(SER_MAGENTA "Interrupt" SER_RESET);
+  Serial.println(SER_MAGENTA "DAT1 IB Interrupt" SER_RESET);
 }
 
 //==============================================================================
 // Start of W4343WCard member functions.
 //==============================================================================
-bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin) 
+bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t extLPOPin) 
 {
   uint32_t kHzSdClk;
   m_curState = IDLE_STATE;
@@ -1124,37 +1185,54 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
  
   initSDHC();
 
-  pinMode(wlOnPin, OUTPUT);  // Pull high to activate WLAN 
+  ////////////
+  //Setup pins
+  ////////////
 
-  //TODO Hack for IRW switching to SDIO2 to test. REMOVE!
-  //if (fUseSDIO2 == true) {
-  //  Serial.println("NOW!!!");
-  //  delay(8000);
-  //}
+  ///////////////////
+  //In-band interrupt
+  ///////////////////
+  //Attach in-band interrupt to DAT1 (GPIO mode only) - not in use, yet
+  //TODO pin 34 is DAT1 on DB5. Need to change depending on device. Eventually use lower level attachment, avoiding pin
+  //#define DAT1_INTERRUPT_PIN 34
+  //Serial.printf(SER_TRACE "Attaching IB interrupt to pin %d\n" SER_RESET, DAT1_INTERRUPT_PIN);
+  //pinMode(DAT1_INTERRUPT_PIN, INPUT);
+  //attachInterrupt(digitalPinToInterrupt(DAT1_INTERRUPT_PIN), onDataInterruptHandler, FALLING);
 
-  digitalWriteFast(wlOnPin, HIGH); // Enable WLAN
-  delay(185);                               // Delay to allow reset to complete
+  //////////////////////////////////
+  //out-of-band interrupt on INT pin
+  //////////////////////////////////
+  if (wlIrqPin > -1) {
+    Serial.printf(SER_TRACE "Attaching OOB interrupt to pin %d\n" SER_RESET, wlIrqPin);
+    pinMode(wlIrqPin, INPUT);
+    attachInterrupt(digitalPinToInterrupt(wlIrqPin), onWLIRQInterruptHandler, FALLING);
+  }
 
-  //Attach interrupt to DAT1 (GPIO mode only) - not in use, yet
-  //TODO pin 34 is for DB5. Need to change to DAT1 pin. Eventually use lower level attachment, avoiding pin
-  #define DAT1_INTERRUPT_PIN 34
-  pinMode(DAT1_INTERRUPT_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(DAT1_INTERRUPT_PIN), onDataInterruptHandler, FALLING);
-
-  //To provide external LPO clock
+  ////////////////////
+  //External LPO clock
+  ////////////////////
   #if defined(USE_EXTERNAL_LPO)
   if (extLPOPin > -1) {
     pinMode(extLPOPin, OUTPUT);    // Set the pin as output
     
-    analogWriteFrequency(extLPOPin, 34700);  // Set the frequency to 32.768 kHz
+    analogWriteFrequency(extLPOPin, 32768);  // Set the frequency to 32.768 kHz
     analogWrite(extLPOPin, 128);             // 50% duty cycle 
   }
   #endif
 
+  ///////////
+  //WL_ON pin
+  ///////////
+  pinMode(wlOnPin, OUTPUT);  // Pull high to activate WLAN 
+  digitalWriteFast(wlOnPin, HIGH); // Enable WLAN
+  delay(185);                      // Delay to allow reset to complete
+
+  ////////////////////////
   //Sequence is heavily influenced by the Pi Zero blog. Enhancements made to the flow by studying
   //Broadcom Full MAC and other drivers - Pi Zero code is a playback of a 'recording' of SDIO commands,
   //and shows apparently unused reads before writes that, in driver code, show that actually the data read
   //is manipulated, and written back.
+  ////////////////////////
 
   //CMD 0
   cardCommand(CMD0_XFERTYP, 0);
@@ -1168,9 +1246,9 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   //CMD 7
   cardCommand(CMD7_XFERTYP, m_rca);
   
-  //TODO What about Function 1 blocksize?
-  //#define SDIOD_CCCR_BLKSIZE_0 (0x10)
-  //cardCMD52_write(SD_FUNC_BUS, SDIOD_CCCR_BLKSIZE_0, 0x40); // Set to 64
+  //Set function block sizes. CYW4343W datasheet p16 - F0/1/2 - 32/64/512
+  cardCMD52_write(SD_FUNC_BUS, BUS_SDIO_BLKSIZE_REG, SD_BUS_BLK_BYTES & 0xFF);
+  cardCMD52_write(SD_FUNC_BUS, BUS_SDIO_BLKSIZE_REG + 1, SD_BUS_BLK_BYTES >> 8);
 
   //Set backplane block size
   cardCMD52_write(SD_FUNC_BUS, BUS_BAK_BLKSIZE_REG, SD_BAK_BLK_BYTES & 0xFF);
@@ -1180,16 +1258,20 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   cardCMD52_write(SD_FUNC_BUS, BUS_RAD_BLKSIZE_REG, SD_RAD_BLK_BYTES & 0xFF);
   cardCMD52_write(SD_FUNC_BUS, BUS_RAD_BLKSIZE_REG + 1, SD_RAD_BLK_BYTES >> 8);
 
-  //Set card bus high speed interface
+  //Device must support high-speed mode
   cardCMD52_read(SD_FUNC_BUS, BUS_SPEED_CTRL_REG, &readResponse);
-  cardCMD52_write(SD_FUNC_BUS, BUS_SPEED_CTRL_REG, readResponse | 2); // Zero set to 0x03
+  if (readResponse & 1) {
+    //Set card bus high speed interface
+    cardCMD52_write(SD_FUNC_BUS, BUS_SPEED_CTRL_REG, readResponse | 2); // Zero set to 0x03
+    Serial.println(SER_TRACE "\nEnabled 4343W bus high speed interface" SER_RESET);
+  }
 
   //Set the card bus to 4-bits
   cardCMD52_read(SD_FUNC_BUS, BUS_BI_CTRL_REG, &readResponse);
   cardCMD52_write(SD_FUNC_BUS, BUS_BI_CTRL_REG, (readResponse & ~3) | 2); // Zero set to 0x42
 
   //Enable I/O 
-  cardCMD52_write(SD_FUNC_BUS, BUS_IOEN_REG, 1 << SD_FUNC_BAK);
+  SDIOEnableFunction(SD_FUNC_BAK);
 
   //Verify I/O is ready
   cardCMD52_read(SD_FUNC_BUS, BUS_IORDY_REG, &readResponse);
@@ -1236,42 +1318,23 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   cardCMD53_read(SD_FUNC_BAK, SB_32BIT_WIN, u32d.bytes, 2);
   Serial.printf(SER_GREEN "\n*************\nCardID: %ld\n*************\n" SER_RESET, u32d.uint32 & 0xFFFF);
 
-  /*
-  ////////////////////////
-  //Set chip clock - CYW43
-  ////////////////////////
-  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0x20 | 0x08 | 0x01);
-  cardCMD52_read(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, &readResponse);
-  if (readResponse & 0x40) {
-    Serial.println(SER_GREEN "BAK_CHIP_CLOCK_CSR_REG returned OK" SER_RESET);
-  } else {
-    Serial.printf(SER_RED "BAK_CHIP_CLOCK_CSR_REG returned %d\n" SER_RESET, readResponse);
-  }
-
-  //Clear request for ALP
-  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0);
-  ////////////////////////
-  ////////////////////////
-  */
-
   ////////////////////////
   //Set chip clock - Zero
   ////////////////////////
   //sdio.c line 3913
   //Force PLL off until brcmf_chip_attach() programs PLL control regs
-  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0x28);
+  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ); // Was 0x28
 
-  //Validate value is set
+  //Validate ALP is available
   cardCMD52_read(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, &readResponse);
-  if ((readResponse & ~(0x80 | 0x40)) == 0x28) {
+ if ((readResponse & ~(0x80 | 0x40)) == (SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_ALP_AVAIL_REQ)) {
     Serial.printf(SER_GREEN "BAK_CHIP_CLOCK_CSR_REG returned 0x%02X\n" SER_RESET, readResponse);
   } else {
     Serial.printf(SER_RED "BAK_CHIP_CLOCK_CSR_REG returned 0x%02X\n" SER_RESET, readResponse);
     return false;
   }
 
-
-  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0x21);
+  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, SBSDIO_FORCE_HW_CLKREQ_OFF | SBSDIO_FORCE_ALP);  // Was 0x21
   ////////////////////////
   ////////////////////////
 
@@ -1353,10 +1416,11 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   cardCMD53_write(SD_FUNC_BAK, 0x8600, u32d.bytes, 4);
   
   // [18.052762]
-  cardCMD52_write(SD_FUNC_BUS, BUS_IOEN_REG, 1 << SD_FUNC_BAK);
+  SDIOEnableFunction(SD_FUNC_BAK);
+
   cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0);
   delay(45);
-  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 8);
+  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, SBSDIO_ALP_AVAIL_REQ);
   
   //Validate BAK_CHIP_CLOCK_CSR_REG
   cardCMD52_read(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, &readResponse);
@@ -1371,7 +1435,9 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   setBackplaneWindow(0x58000);
   cardCMD53_read(SD_FUNC_BAK, 0xEE80, data, 4);
 
-  //checkValidFirmware(FIRMWARE_LEN, (uintptr_t)firmware_bin);
+#if defined(USE_ZERO_FIRMWARE)
+  checkValidFirmware(FIRMWARE_LEN, (uintptr_t)firmware_bin);
+#endif
   uploadFirmware(FIRMWARE_LEN, (uintptr_t)firmware_bin);
 
   #if defined(USE_ZERO_FIRMWARE)
@@ -1398,10 +1464,12 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
 
   setBackplaneWindow(BAK_BASE_ADDR);
   cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0);
-  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0x10);
-  cardCMD52_read(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, &readResponse);
+
+  //Request HT Avail
+  cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, SBSDIO_HT_AVAIL_REQ);
   delay(50);
 
+  //Validate HT Avail
   bool res = cardCMD52_read(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, &readResponse);
   if ((res == false) || readResponse != 0xD0) {
     Serial.printf(SER_RED "Set BAK_CHIP_CLOCK_CSR_REG issue, response: 0x%02X\n" SER_RESET, readResponse);
@@ -1413,7 +1481,10 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   //[19.190728]
   cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0xD2);
   backplaneWindow_write32(SB_TO_SB_MBOX_DATA_REG, 0x40000);
-  cardCMD52_write(SD_FUNC_BUS, BUS_IOEN_REG, (1<<SD_FUNC_BAK) | (1<<SD_FUNC_RAD));
+
+  SDIOEnableFunction(SD_FUNC_BAK);
+  SDIOEnableFunction(SD_FUNC_RAD);
+
   cardCMD52_read(SD_FUNC_BUS, BUS_IORDY_REG, &readResponse);
   delay(100);
   if (!cardCMD52_read(SD_FUNC_BUS, BUS_IORDY_REG, &readResponse) || readResponse != 0x06) {
@@ -1430,8 +1501,10 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   setBackplaneWindow(BAK_BASE_ADDR);
   cardCMD52_write(SD_FUNC_BAK, BAK_WAKEUP_REG, 2);
   cardCMD52_write(SD_FUNC_BUS, BUS_BRCM_CARDCAP, 6);
-  cardCMD52_write(SD_FUNC_BUS, BUS_INTEN_REG, 0x07);
+
+  configureOOBInterrupt();
   cardCMD52_read(SD_FUNC_BUS, BUS_INTPEND_REG, &readResponse);
+
 
   //[19.284023]
   backplaneWindow_read32(SB_INT_STATUS_REG, &u32d.uint32);
@@ -1451,7 +1524,7 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t extLPOPin)
   backplaneWindow_read32(SB_INT_STATUS_REG, &u32d.uint32);
   backplaneWindow_write32(SB_INT_STATUS_REG, 0x80);
 
-  cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, data, 64);
+  cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, data, 64, false);
   
   Serial.printf("\n==============================\nEnd W4343WCard::begin: %s\n==============================\n", fUseSDIO2 ? "SDIO2" : "SDIO");
  
@@ -1475,5 +1548,3 @@ uint32_t W4343WCard::kHzSdClk() {
   return m_sdClkKhz;
 }
 //------------------------------------------------------------------------------
-
-#endif  // defined(__MK64FX512__)  defined(__MK66FX1M0__) defined(__IMXRT1062__)
