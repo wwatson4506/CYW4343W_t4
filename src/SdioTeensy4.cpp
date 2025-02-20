@@ -38,62 +38,22 @@
 //Remove this define to use built-in internal LPO in 4343W
 //#define USE_EXTERNAL_LPO
 
-//Choose between firmware found with the Zero code blog, or from the CYW43 driver
-#define USE_ZERO_FIRMWARE
+///////////////
+//Firmware file
+///////////////
 
-#if defined(USE_ZERO_FIRMWARE)
-/////////////////////////
-//Zero firmware and NVRAM
-/////////////////////////
-#define FIRMWARE_LEN 0x5EE84
-#include "../firmware/brcmfmac43430-sdio.c" // Oct 23 2017 03:55:53 version 7.45.98.38
-extern const unsigned char firmware_bin[FIRMWARE_LEN];
+#include "../firmware/brcmfmac43430-sdio.c"                  // Zero:  Oct 23 2017 03:55:53 version 7.45.98.38
+//#include "../firmware/w4343WA1_7_45_98_50_combined.h"      // CYW43: Apr 30 2018 04:14:19 version 7.45.98.50
+//#include "../firmware/w4343WA1_7_45_98_102_combined.h"     // CYW43: Jun 18 2020 08:48:22 version 7.45.98.102 
+//#include "../firmware/cyfmac43430_fmac_7_45_98_125-sdio.c" // fmac:  Aug 16 2022 03:05:14 version 7.45.98.125
 
-//Configuration for brcmfmac43430-sdio
-//Note - removed 4 bytes representing size from the end of this. Calculated in code
-//boardflags3 - needs to change depending on internal or external LPO clock
-//Changed muxenab to 0x11 from 0x1 to allow INT chip to function
-uint8_t config_data[] = 
-"manfid=0x2d0\0""prodid=0x0726\0""vendid=0x14e4\0""devid=0x43e2\0"
-"boardtype=0x0726\0""boardrev=0x1202\0""boardnum=22\0""macaddr=00:90:4c:c5:12:38\0"
-"sromrev=11\0""boardflags=0x00404201\0"
-#if defined(USE_EXTERNAL_LPO)
-"boardflags3=0x08000000\0"
-#else
-"boardflags3=0x04000000\0"
-#endif
-"xtalfreq=37400\0"
-"nocrc=1\0""ag0=255\0""aa2g=1\0""ccode=ALL\0""pa0itssit=0x20\0""extpagain2g=0\0"
-"pa2ga0=-168,7161,-820\0""AvVmid_c0=0x0,0xc8\0""cckpwroffset0=5\0""maxp2ga0=84\0"
-"txpwrbckof=6\0""cckbw202gpo=0\0""legofdmbw202gpo=0x66111111\0"
-"mcsbw202gpo=0x77711111\0""propbw202gpo=0xdd\0""ofdmdigfilttype=18\0"
-"ofdmdigfilttypebe=18\0""papdmode=1\0""papdvalidtest=1\0""pacalidx2g=32\0"
-"papdepsoffset=-36\0""papdendidx=61\0""il0macaddr=00:90:4c:c5:12:38\0"
-"wl0id=0x431b\0""deadman_to=0xffffffff\0""muxenab=0x11\0""spurconfig=0x3 \0"
-"btc_mode=1\0""btc_params8=0x4e20\0""btc_params1=0x7530\0""\0\0\0\0";
-int config_len = sizeof(config_data) - 1;
-/////////////////////////
-/////////////////////////
-#else
-//////////////////////////
-//CYW43 Firmware and NVRAM
-//////////////////////////
-#include "../firmware/wifi_nvram_1dx.h"
-
-//#include "../firmware/w4343WA1_7_45_98_102_combined.h" // Jun 18 2020 08:48:22 version 7.45.98.102 
-//#define FIRMWARE_LEN CYW43_WIFI_FW_LEN
-//char * firmware_bin = (char *)w4343WA1_7_45_98_102_combined;
-
-//CYW43 Other firmware:
-#include "../firmware/w4343WA1_7_45_98_50_combined.h" // Apr 30 2018 04:14:19 version 7.45.98.50
-#define FIRMWARE_LEN CYW43_WIFI_FW_LEN
-char * firmware_bin = (char *)w4343WA1_7_45_98_50_combined;
+////////////
+//NVRAM file
+/////////////
+#include "../firmware/wifi_nvram_4343W_zero.h"
+//#include "../firmware/wifi_nvram_1dx.h"
 
 
-
-/////////////////////////
-/////////////////////////
-#endif
 
 //==============================================================================
 //------------------------------------------------------------------------------
@@ -558,34 +518,6 @@ uint32_t W4343WCard::backplaneWindow_write32(uint32_t addr, uint32_t val)
   return cardCMD53_write(SD_FUNC_BAK, addr | SB_32BIT_WIN, u32d.bytes, 4, false);
 }
 
-// Can be used from the CYW43 driver to validate input data for firmware
-bool W4343WCard::checkValidFirmware(size_t len, uintptr_t source)
-{
-  //Get the last part of the firmware, the last 800 bytes
-  uint32_t fw_end = 800;
-  const uint8_t *b = (const uint8_t *)source + len - fw_end;
-
-  Serial.printf(SER_CYAN "\nValidating firmware file:\n" SER_RESET);
-
-  //Get length of trailer
-  fw_end -= 16; // skip DVID trailer
-  uint32_t trail_len = b[fw_end - 2] | b[fw_end - 1] << 8;
-
-  if (trail_len < 500 && b[fw_end - 3] == '\0') {
-    for (int i = 80; i < (int)trail_len; ++i) {
-      if (strncmp((const char *)&b[fw_end - 3 - i], "Version: ", 9) == 0) {
-        // valid chipset firmware found
-        // print wifi firmware version info
-        Serial.printf(SER_CYAN "%s\n" SER_RESET, &b[fw_end - 3 - i]);
-        return true;
-      }
-    }
-  }
-
-  Serial.printf(SER_RED "could not find valid firmware\n" SER_RESET);
-  return false;
-}
-
 bool W4343WCard::uploadFirmware(size_t firmwareSize, uintptr_t source)
 {
   uint32_t nBytesSent = 0;
@@ -759,6 +691,7 @@ void W4343WCard::ScanNetworks()
   }
 
   while (1) {
+    delay(1000);
     uint32_t n = ioctl_get_event(&ieh, eventbuff, sizeof(eventbuff));
     
     if (n > sizeof(escan_result)) {
@@ -882,17 +815,17 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
 
       // Discard response if not matching request
       if ((rsp->cmd.flags>>16) != ioctl_reqid) {
-          ret = 0;
+        ret = 0;
       }
       // Exit if error response
       if (ret && (rsp->cmd.flags & 1))
       {
-          ret = 0;
-          break;
+        ret = 0;
+        break;
       }
       // If OK, copy data to buffer
       if (ret && !wr && data && dlen) {
-          memcpy(data, rsp->cmd.data, dlen);
+        memcpy(data, rsp->cmd.data, dlen);
       }
     }
     // If no response, wait
@@ -1136,7 +1069,7 @@ bool W4343WCard::SDIODisableFunction(uint8_t functionNumber)
 bool W4343WCard::configureOOBInterrupt()
 {
   uint8_t readResponse;
-  Serial.println(SER_ERROR "Configuring WL_IRQ OOB" SER_RESET);
+  Serial.println(SER_TRACE "\nConfiguring WL_IRQ OOB" SER_RESET);
   // Must configure BUS_INTEN_REG to enable irq
   cardCMD52_read(SD_FUNC_BUS, BUS_INTEN_REG, &readResponse);
   readResponse |= SDIO_CCCR_IEN_FUNC0 | SDIO_CCCR_IEN_FUNC1 | SDIO_CCCR_IEN_FUNC2;
@@ -1294,7 +1227,7 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   m_psdhc->PROT_CTRL |= SDHC_PROCTL_DTW(SDHC_PROCTL_DTW_4BIT);
 
   //Set the SDHC SCK frequency
-  kHzSdClk = 50'000;
+  kHzSdClk = 25'000; //TODO 50'000
 
   //Disable GPIO
   enableSDIO(false);
@@ -1435,18 +1368,10 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   setBackplaneWindow(0x58000);
   cardCMD53_read(SD_FUNC_BAK, 0xEE80, data, 4);
 
-#if defined(USE_ZERO_FIRMWARE)
-  checkValidFirmware(FIRMWARE_LEN, (uintptr_t)firmware_bin);
-#endif
   uploadFirmware(FIRMWARE_LEN, (uintptr_t)firmware_bin);
 
-  #if defined(USE_ZERO_FIRMWARE)
-  //Load config data
-  uploadNVRAM(config_len, (uintptr_t)config_data);
-#else
-  size_t wifi_nvram_len = sizeof(wifi_nvram_4343) - 1;
-  uploadNVRAM(wifi_nvram_len, (uintptr_t)wifi_nvram_4343);
-#endif  
+  size_t wifi_nvram_len = sizeof(wifi_nvram) - 1;
+  uploadNVRAM(wifi_nvram_len, (uintptr_t)wifi_nvram);
 
   //This prints the last 44 bytes of NVRAM upload. Comment out for now
   //cardCMD53_read(SD_FUNC_BAK, 0xFFD4, data, 44);

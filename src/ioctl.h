@@ -49,8 +49,10 @@ typedef struct {
     uint32_t version;
     uint16_t action,
              sync_id;
+             //brcmf_ssid_le
     uint32_t ssidlen;
     uint8_t  ssid[SSID_MAXLEN],
+             //brcmf_scan_params_le
              bssid[6],
              bss_type,
              scan_type;
