@@ -47,21 +47,21 @@ typedef struct {
 #pragma pack(1)
 typedef struct {
     uint32_t version;
-    uint16_t action,
-             sync_id;
+    uint16_t action;
+    uint16_t sync_id;
              //brcmf_ssid_le
     uint32_t ssidlen;
-    uint8_t  ssid[SSID_MAXLEN],
+    uint8_t  ssid[SSID_MAXLEN];
              //brcmf_scan_params_le
-             bssid[6],
-             bss_type,
-             scan_type;
-    int32_t nprobes,
-             active_time,
-             passive_time,
-             home_time;
-    uint16_t nchans,
-             nssids;
+    uint8_t bssid[6];
+    int8_t  bss_type;
+    int8_t  scan_type;
+    int32_t nprobes;
+    int32_t active_time;
+    int32_t passive_time;
+    int32_t home_time;
+    uint16_t nchans;
+    uint16_t nssids;
     uint8_t  chans[14][2],
              ssids[1][SSID_MAXLEN];
 } SCAN_PARAMS;

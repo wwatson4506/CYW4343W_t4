@@ -165,8 +165,8 @@ class W4343WCard  {
   ////////////////////
  void makeSDIO_DAT1();
  void makeGPIO_DAT1();
- bool SDIOEnableFunction(uint8_t functionNumber);
- bool SDIODisableFunction(uint8_t functionNumber);
+ bool SDIOEnableFunction(uint8_t functionEnable);
+ bool SDIODisableFunction(uint8_t functionEnable);
  bool configureOOBInterrupt();
  static volatile bool dataISRReceived;
  static void onWLIRQInterruptHandler();
@@ -209,6 +209,7 @@ class W4343WCard  {
 
  uint32_t ioctl_get_event(IOCTL_EVENT_HDR *hp, uint8_t *data, int maxlen);
  int ioctl_enable_evts(EVT_STR *evtp);
+ int ioctl_set_uint32(const char *name, int wait_msec, uint32_t val);
  int ioctl_wr_int32(int cmd, int wait_msec, int val);
  int ioctl_get_data(const char *name, int wait_msec, uint8_t *data, int dlen);
  int ioctl_set_data(const char *name, int wait_msec, void *data, int len);

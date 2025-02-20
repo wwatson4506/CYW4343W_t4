@@ -20,6 +20,10 @@
 #define SD_FUNC_BAK     1
 #define SD_FUNC_RAD     2
 
+#define SD_FUNC_BUS_EN  0x01
+#define SD_FUNC_BAK_EN  0x02
+#define SD_FUNC_RAD_EN  0x04
+
 //Read/write block sizes
 #define SD_BUS_BLK_BYTES    32
 #define SD_BAK_BLK_BYTES    64
@@ -63,11 +67,11 @@
 #define SBSDIO_FORCE_ALP           0x01           // Active low-power clock 
 
 // For OOB interrupts
-#define SDIO_CCCR_BRCM_SEPINT_MASK 1 << 0  // BIT(0)
-#define SDIO_CCCR_BRCM_SEPINT_OE   1 << 1  // BIT(1)
-#define SDIO_CCCR_IEN_FUNC0 1 << 0  // BIT(0)
-#define SDIO_CCCR_IEN_FUNC1 1 << 1  // BIT(1)
-#define SDIO_CCCR_IEN_FUNC2 1 << 2  // BIT(2)
+#define SDIO_CCCR_BRCM_SEPINT_MASK 0x01  // BIT(0)
+#define SDIO_CCCR_BRCM_SEPINT_OE   0x02  // BIT(1)
+#define SDIO_CCCR_IEN_FUNC0 0x01  // BIT(0)
+#define SDIO_CCCR_IEN_FUNC1 0x02  // BIT(1)
+#define SDIO_CCCR_IEN_FUNC2 0x04  // BIT(2)
 
 #define BAK_PULLUP_REG          0x1000f // SDIO_PULL_UP             Pullups
 #define BAK_WAKEUP_REG          0x1001e // SDIO_WAKEUP_CTRL

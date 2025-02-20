@@ -596,8 +596,8 @@ EVT_STR escan_evts[] = ESCAN_EVTS;
 SCAN_PARAMS scan_params = {
     .version=1, .action=1, .sync_id=0x1234, .ssidlen=0, .ssid={0}, 
     .bssid={0xff,0xff,0xff,0xff,0xff,0xff}, .bss_type=2,
-    .scan_type=SCANTYPE_PASSIVE, .nprobes=~0, .active_time=~0,
-    .passive_time=~0, .home_time=~0, 
+    .scan_type=SCANTYPE_PASSIVE, .nprobes=-1, .active_time=-1,
+    .passive_time=-1, .home_time=-1, 
 #if SCAN_CHAN == 0
     .nchans=14, .nssids=0, 
     .chans={{1,0x2b},{2,0x2b},{3,0x2b},{4,0x2b},{5,0x2b},{6,0x2b},{7,0x2b},
@@ -1029,7 +1029,7 @@ bool W4343WCard::waitTransferComplete() {
   return true;
 }
 
-bool W4343WCard::SDIOEnableFunction(uint8_t functionNumber)
+bool W4343WCard::SDIOEnableFunction(uint8_t functionEnable)
 {
   uint8_t readResponse;
 
@@ -1037,17 +1037,26 @@ bool W4343WCard::SDIOEnableFunction(uint8_t functionNumber)
   cardCMD52_read(SD_FUNC_BUS, BUS_IOEN_REG, &readResponse);
 
   //Set function enable
-  readResponse |= 1 << functionNumber;
+  readResponse |= functionEnable;
 
   //Write back register
   cardCMD52_write(SD_FUNC_BUS, BUS_IOEN_REG, readResponse);
 
-  //TODO validate written?
-  Serial.printf(SER_TRACE "SDIO function %d enabled\n" SER_RESET, functionNumber);
-  return true;
+  //Verify
+  for (uint8_t i = 0; i < 100; i++) {
+    cardCMD52_read(SD_FUNC_BUS, BUS_IOEN_REG, &readResponse);
+    if (readResponse & functionEnable) {
+      Serial.printf(SER_TRACE "SDIO function mask 0x%02X enabled\n" SER_RESET, functionEnable);
+      return true;
+    } 
+    delay(1);
+  }
+
+  Serial.printf(SER_ERROR "SDIO function mask 0x%02X not enabled\n" SER_RESET, functionEnable);
+  return false;
 }
 
-bool W4343WCard::SDIODisableFunction(uint8_t functionNumber)
+bool W4343WCard::SDIODisableFunction(uint8_t functionEnable)
 {
   uint8_t readResponse;
 
@@ -1055,13 +1064,13 @@ bool W4343WCard::SDIODisableFunction(uint8_t functionNumber)
   cardCMD52_read(SD_FUNC_BUS, BUS_IOEN_REG, &readResponse);
 
   //Set function disable
-  readResponse &= ~(1 << functionNumber);
+  readResponse &= ~functionEnable;
 
   //Write back register
   cardCMD52_write(SD_FUNC_BUS, BUS_IOEN_REG, readResponse);
 
   //TODO validate written?
-  Serial.printf(SER_TRACE "SDIO function %d disabled\n" SER_RESET, functionNumber);
+  Serial.printf(SER_TRACE "SDIO function mask 0x%02X disabled\n" SER_RESET, functionEnable);
   return true;
 }
 
@@ -1172,7 +1181,7 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   //CMD 5
   cardCommand(CMD5_XFERTYP, 0);
   //CMD 5
-  cardCommand(CMD5_XFERTYP, 0x200000);
+  //cardCommand(CMD5_XFERTYP, 0x200000); // Not needed
   //CMD 3
   cardCommand(CMD3_XFERTYP, 0);
   m_rca = m_psdhc->CMD_RSP0 & 0xFFFF0000;
@@ -1204,7 +1213,9 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   cardCMD52_write(SD_FUNC_BUS, BUS_BI_CTRL_REG, (readResponse & ~3) | 2); // Zero set to 0x42
 
   //Enable I/O 
-  SDIOEnableFunction(SD_FUNC_BAK);
+  if (SDIOEnableFunction(SD_FUNC_BAK_EN) == false) {
+    return false;
+  }
 
   //Verify I/O is ready
   cardCMD52_read(SD_FUNC_BUS, BUS_IORDY_REG, &readResponse);
@@ -1243,7 +1254,7 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   ////////////////////////////////////////
 
   //Set backplane window
-  //setBackplaneWindow(BAK_BASE_ADDR);
+  setBackplaneWindow(BAK_BASE_ADDR);
 
   //Read chip ID 
   //This was 4 byte read in the Zero code, causes extra bytes in the buffer - only if first CMD53 executed. 
@@ -1349,7 +1360,9 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   cardCMD53_write(SD_FUNC_BAK, 0x8600, u32d.bytes, 4);
   
   // [18.052762]
-  SDIOEnableFunction(SD_FUNC_BAK);
+  if (SDIOEnableFunction(SD_FUNC_BAK_EN) == false) {
+    return false;
+  }
 
   cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0);
   delay(45);
@@ -1407,8 +1420,9 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   cardCMD52_write(SD_FUNC_BAK, BAK_CHIP_CLOCK_CSR_REG, 0xD2);
   backplaneWindow_write32(SB_TO_SB_MBOX_DATA_REG, 0x40000);
 
-  SDIOEnableFunction(SD_FUNC_BAK);
-  SDIOEnableFunction(SD_FUNC_RAD);
+  if (SDIOEnableFunction(SD_FUNC_BAK_EN | SD_FUNC_RAD_EN) == false) {
+    return false;
+  }
 
   cardCMD52_read(SD_FUNC_BUS, BUS_IORDY_REG, &readResponse);
   delay(100);
