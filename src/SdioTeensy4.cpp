@@ -593,8 +593,12 @@ uint8_t eventbuff[1600];
 EVT_STR escan_evts[] = ESCAN_EVTS;
 
 // Network scan parameters
-SCAN_PARAMS scan_params = {
-    .version=1, .action=1, .sync_id=0x1234, .ssidlen=0, .ssid={0}, 
+brcmf_escan_params_le scan_params = {
+    .version=1, .action=1, .sync_id=0x1234,
+    .params_le {
+      .ssid_le {
+        .SSID_len=0, .SSID={0}
+      }, 
     .bssid={0xff,0xff,0xff,0xff,0xff,0xff}, .bss_type=2,
     .scan_type=SCANTYPE_PASSIVE, .nprobes=-1, .active_time=-1,
     .passive_time=-1, .home_time=-1, 
@@ -605,6 +609,31 @@ SCAN_PARAMS scan_params = {
 #else
     .nchans=1, .nssids=0, .chans={{SCAN_CHAN,0x2b}}, .ssids={{0}}
 #endif
+    }
+};
+
+////////////////
+//V2 scan params
+////////////////
+brcmf_escan_params_le scan_params_v2 = {
+  .version=2, .action=1, .sync_id=0x1234,
+  .params_v2_le {
+    .version = 2,
+    .ssid_le {
+      .SSID_len=0, .SSID={0}
+    }, 
+  .bssid={0xff,0xff,0xff,0xff,0xff,0xff}, .bss_type=2,
+  .pad = 0,
+  .scan_type=SCANTYPE_PASSIVE, .nprobes=-1, .active_time=-1,
+  .passive_time=-1, .home_time=-1, 
+#if SCAN_CHAN == 0
+  .nchans=14, .nssids=0, 
+  .chans={{1,0x2b},{2,0x2b},{3,0x2b},{4,0x2b},{5,0x2b},{6,0x2b},{7,0x2b},
+    {8,0x2b},{9,0x2b},{10,0x2b},{11,0x2b},{12,0x2b},{13,0x2b},{14,0x2b}},
+#else
+  .nchans=1, .nssids=0, .chans={{SCAN_CHAN,0x2b}}, .ssids={{0}}
+#endif
+  }
 };
 
 uint8_t resp[256] = {0};
@@ -801,6 +830,8 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
     memcpy(&cmdp->data[namelen], data, dlen);
   // Send IOCTL command
   cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, txlen, false);
+
+  //TODO consider code in cyw43_ll_sdpcm_poll_device(), cyw43_ll.c, line 948
   ioctl_wait(IOCTL_WAIT_USEC);
   while (wait_msec >= 0 && ret == 0) {
     // Wait for response to be available

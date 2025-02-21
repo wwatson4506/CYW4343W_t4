@@ -45,14 +45,14 @@ typedef struct {
         EVT(WLC_E_DEAUTH_IND), EVT(WLC_E_DISASSOC_IND), EVT(WLC_E_PSK_SUP), EVT(-1)}
 
 #pragma pack(1)
-typedef struct {
-    uint32_t version;
-    uint16_t action;
-    uint16_t sync_id;
-             //brcmf_ssid_le
-    uint32_t ssidlen;
-    uint8_t  ssid[SSID_MAXLEN];
-             //brcmf_scan_params_le
+
+struct brcmf_ssid_le {
+	uint32_t SSID_len;
+	unsigned char SSID[SSID_MAXLEN];
+};
+
+struct brcmf_scan_params_le {
+    struct brcmf_ssid_le ssid_le;
     uint8_t bssid[6];
     int8_t  bss_type;
     int8_t  scan_type;
@@ -64,7 +64,35 @@ typedef struct {
     uint16_t nssids;
     uint8_t  chans[14][2],
              ssids[1][SSID_MAXLEN];
-} SCAN_PARAMS;
+};
+
+struct brcmf_scan_params_v2_le {
+	uint16_t version;		/* structure version */
+	uint16_t length;		/* structure length */
+	struct brcmf_ssid_le ssid_le;
+	uint8_t bssid[6];
+	int8_t bss_type;
+	uint8_t pad;
+	uint32_t scan_type;
+	int32_t nprobes;
+	int32_t active_time;
+    int32_t passive_time;
+    int32_t home_time;
+    uint16_t nchans;
+    uint16_t nssids;
+    uint8_t  chans[14][2],
+             ssids[1][SSID_MAXLEN];
+};
+
+struct brcmf_escan_params_le {
+	uint32_t version;
+	uint16_t action;
+	uint16_t sync_id;
+	union {
+		struct brcmf_scan_params_le params_le;
+		struct brcmf_scan_params_v2_le params_v2_le;
+	};
+};
 
 // Event structures
 typedef struct {
