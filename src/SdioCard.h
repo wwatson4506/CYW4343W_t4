@@ -216,6 +216,7 @@ class W4343WCard  {
  bool   waitTransferComplete();
  void   printRegs(uint32_t line);
 
+ bool set_iovar_mpc(uint8_t val);
  uint32_t ioctl_get_event(IOCTL_EVENT_HDR *hp, uint8_t *data, int maxlen);
  int ioctl_enable_evts(EVT_STR *evtp);
  int ioctl_set_uint32(const char *name, int wait_msec, uint32_t val);

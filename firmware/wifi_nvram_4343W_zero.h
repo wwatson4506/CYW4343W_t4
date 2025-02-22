@@ -17,7 +17,8 @@ PROGMEM static const uint8_t wifi_nvram[] =
 "boardflags3=0x04000000\0"
 #endif
 "xtalfreq=37400\0"
-"nocrc=1\0""ag0=255\0"
+"nocrc=1\0"
+"ag0=255\0"
 "aa2g=1\0"
 "ccode=ALL\0"
 "pa0itssit=0x20\0"

@@ -48,7 +48,7 @@ typedef struct {
 
 struct brcmf_ssid_le {
 	uint32_t SSID_len;
-	unsigned char SSID[SSID_MAXLEN];
+	uint8_t SSID[SSID_MAXLEN];
 };
 
 struct brcmf_scan_params_le {
@@ -62,8 +62,9 @@ struct brcmf_scan_params_le {
     int32_t home_time;
     uint16_t nchans;
     uint16_t nssids;
-    uint8_t  chans[14][2],
-             ssids[1][SSID_MAXLEN];
+    uint16_t channel_list[1];   // channel list (not used)
+    //uint8_t  chans[14][2],
+    //         ssids[1][SSID_MAXLEN];
 };
 
 struct brcmf_scan_params_v2_le {
@@ -87,7 +88,7 @@ struct brcmf_scan_params_v2_le {
 struct brcmf_escan_params_le {
 	uint32_t version;
 	uint16_t action;
-	uint16_t sync_id;
+	uint16_t _;
 	union {
 		struct brcmf_scan_params_le params_le;
 		struct brcmf_scan_params_v2_le params_v2_le;
@@ -171,7 +172,6 @@ typedef struct {
 #pragma pack()
 
 extern char ioctl_event_hdr_fields[];
-extern int txglom;
 
 #ifdef __cplusplus
 }

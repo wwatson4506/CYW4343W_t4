@@ -42,10 +42,10 @@
 //Firmware file
 ///////////////
 
-#include "../firmware/brcmfmac43430-sdio.c"                  // Zero:  Oct 23 2017 03:55:53 version 7.45.98.38
-//#include "../firmware/w4343WA1_7_45_98_50_combined.h"      // CYW43: Apr 30 2018 04:14:19 version 7.45.98.50
-//#include "../firmware/w4343WA1_7_45_98_102_combined.h"     // CYW43: Jun 18 2020 08:48:22 version 7.45.98.102 
-//#include "../firmware/cyfmac43430_fmac_7_45_98_125-sdio.c" // fmac:  Aug 16 2022 03:05:14 version 7.45.98.125
+#include "../firmware/brcmfmac43430-sdio.c"                  // Zero:  Firmware wl0: Oct 23 2017 03:55:53 version 7.45.98.38 (r674442 CY) FWID 01-e58d219f
+//#include "../firmware/w4343WA1_7_45_98_50_combined.h"      // CYW43: Firmware wl0: Apr 30 2018 04:14:19 version 7.45.98.50 (r688715 CY) FWID 01-283fcdb9
+//#include "../firmware/w4343WA1_7_45_98_102_combined.h"     // CYW43: Firmware wl0: Jun 18 2020 08:48:22 version 7.45.98.102 (r726187 CY) FWID 01-36dd36be
+//#include "../firmware/cyfmac43430_fmac_7_45_98_125-sdio.c" // fmac:  Firmware wl0: Aug 16 2022 03:05:14 version 7.45.98.125 (5b7978c CY) FWID 01-f420b81d
 
 ////////////
 //NVRAM file
@@ -581,7 +581,6 @@ void W4343WCard::printResponse(bool return_value)
 
 
 IOCTL_MSG ioctl_txmsg, ioctl_rxmsg;
-int txglom;
 uint16_t ioctl_reqid=0;
 uint8_t event_mask[EVENT_MAX / 8];
 EVT_STR *current_evts;
@@ -610,7 +609,7 @@ char event_msg_fields[] = "2;ver 2;flags 4;type 4;status 4;reason 4:auth 4;dlen 
 
 // Network scan parameters
 brcmf_escan_params_le scan_params = {
-    .version=1, .action=1, .sync_id=0x1234,
+    .version=1, .action=1, ._=0,
     .params_le {
       .ssid_le {
         .SSID_len=0, .SSID={0}
@@ -620,8 +619,10 @@ brcmf_escan_params_le scan_params = {
     .passive_time=-1, .home_time=-1, 
 #if SCAN_CHAN == 0
     .nchans=14, .nssids=0, 
+    /*
     .chans={{1,0x2b},{2,0x2b},{3,0x2b},{4,0x2b},{5,0x2b},{6,0x2b},{7,0x2b},
       {8,0x2b},{9,0x2b},{10,0x2b},{11,0x2b},{12,0x2b},{13,0x2b},{14,0x2b}},
+    */
 #else
     .nchans=1, .nssids=0, .chans={{SCAN_CHAN,0x2b}}, .ssids={{0}}
 #endif
@@ -632,7 +633,7 @@ brcmf_escan_params_le scan_params = {
 //V2 scan params
 ////////////////
 brcmf_escan_params_le scan_params_v2 = {
-  .version=2, .action=1, .sync_id=0x1234,
+  .version=2, .action=1, ._=0,
   .params_v2_le {
     .version = 2,
     .ssid_le {
@@ -727,6 +728,9 @@ void W4343WCard::ScanNetworks()
     return;
   }
 
+  //Rumours that MPC enabled affect scan capabilities are greatly exaggerated. Doesn't work
+  set_iovar_mpc(0);
+
   if (ioctl_set_data("escan", 0, &scan_params, sizeof(scan_params)) == true) {
     Serial.printf(SER_TRACE "\nSet data escan\n" SER_RESET);
   } else {
@@ -745,6 +749,8 @@ void W4343WCard::ScanNetworks()
       Serial.printf("\n");
     }
   }
+
+  set_iovar_mpc(1);
 }
 
 //----------------------------------------------------------------------
@@ -837,6 +843,13 @@ delay(2000);  // Temporary delay to see what's going on...
 ///////////////////////////
 ///////////////////////////
 
+bool W4343WCard::set_iovar_mpc(uint8_t val)
+{
+  Serial.printf(SER_TRACE "\n%s MPC\n" SER_RESET, (val == 0 ? "Disable" : "Enable"));
+  int res = ioctl_set_uint32("mpc", 20, 1);
+  return res;
+}
+
 // Get event data, return data length excluding header
 uint32_t W4343WCard::ioctl_get_event(IOCTL_EVENT_HDR *hp, uint8_t *data, int maxlen)
 {
@@ -879,6 +892,14 @@ int W4343WCard::ioctl_enable_evts(EVT_STR *evtp)
     return ioctl_set_data("event_msgs", 0, event_mask, sizeof(event_mask));
 }
 
+// Set an unsigned integer IOCTL variable
+int W4343WCard::ioctl_set_uint32(const char * name, int wait_msec, uint32_t val)
+{
+    u32Data u32 = {.uint32=val};
+
+    return(ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, u32.bytes, 4));
+}
+
 // IOCTL write with integer parameter
 int W4343WCard::ioctl_wr_int32(int cmd, int wait_msec, int val)
 {
@@ -919,7 +940,7 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
 {
   static uint8_t txseq=1;
   IOCTL_MSG *msgp = &ioctl_txmsg, *rsp = &ioctl_rxmsg;
-  IOCTL_CMD *cmdp = txglom ? &msgp->glom_cmd.cmd : &msgp->cmd;
+  IOCTL_CMD *cmdp = &msgp->cmd;
   int ret=0, namelen = name ? strlen(name)+1 : 0;
   int txdlen = wr ? namelen + dlen : MAX(namelen, dlen);
   int hdrlen = cmdp->data - (uint8_t *)&ioctl_txmsg;
@@ -930,13 +951,8 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
   memset(msgp, 0, sizeof(ioctl_txmsg));
   memset(rsp, 0, sizeof(ioctl_rxmsg));
   msgp->notlen = ~(msgp->len = hdrlen+txdlen);
-  if (txglom)
-  {
-    msgp->glom_cmd.glom_hdr.len = hdrlen + txdlen - 4;
-    msgp->glom_cmd.glom_hdr.flags = 1;
-  }
   cmdp->seq = txseq++;
-  cmdp->hdrlen = txglom ? 20 : 12;
+  cmdp->hdrlen = 12;
   cmdp->cmd = cmd;
   cmdp->outlen = txdlen;
   cmdp->flags = ((uint32_t)++ioctl_reqid << 16) | (wr ? 2 : 0);
@@ -945,7 +961,7 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
   if (wr)
     memcpy(&cmdp->data[namelen], data, dlen);
   // Send IOCTL command
-  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, txlen, false);
+  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, txlen, true);
 
   //TODO consider code in cyw43_ll_sdpcm_poll_device(), cyw43_ll.c, line 948
   ioctl_wait(IOCTL_WAIT_USEC);
@@ -958,16 +974,18 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
       // ..request response
       backplaneWindow_write32(SB_INT_STATUS_REG, val);
       // Fetch response
-      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp, txlen, false);
+      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp, txlen, true);
 
       // Discard response if not matching request
-      if ((rsp->cmd.flags>>16) != ioctl_reqid) {
+      if ((rsp->cmd.flags >> 16) != ioctl_reqid) {
+        Serial.printf(SER_WARN "None matching request: cmd.flags: %ld, ioctl_reqid: %ld\n" SER_RESET, (rsp->cmd.flags >> 16), ioctl_reqid);
         ret = 0;
       }
       // Exit if error response
       if (ret && (rsp->cmd.flags & 1))
       {
         ret = 0;
+        Serial.println(SER_ERROR "Error flag set" SER_RESET);
         break;
       }
       // If OK, copy data to buffer
