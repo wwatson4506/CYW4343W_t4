@@ -112,6 +112,7 @@ typedef struct wlc_ssid
     uint32_t SSID_len;
     uint8_t SSID[32];
 } wlc_ssid_t;
+
 #define WL_BSSTYPE_INFRA 1
 #define WL_BSSTYPE_INDEP 0
 #define WL_BSSTYPE_ANY   2
