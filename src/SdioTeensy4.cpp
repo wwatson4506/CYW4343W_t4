@@ -62,6 +62,10 @@ W4343WCard *W4343WCard::s_pSdioCards[2] = {nullptr, nullptr};
 volatile bool W4343WCard::dataISRReceived = false;
 volatile bool W4343WCard::fUseSDIO2 = false;
 
+wl_country_t country_struct = {.country_abbrev=COUNTRY, .rev=COUNTRY_REV, .ccode=COUNTRY};
+#define CHECK(f, a, ...) {if (!f(a, __VA_ARGS__)) \
+                          Serial.printf("Error: %s(%s ...)\n", #f, #a);}
+
 #define DBG_TRACE Serial.print("TRACE."); Serial.println(__LINE__); delay(200);
 #define USE_DEBUG_MODE 1
 #if USE_DEBUG_MODE
@@ -575,6 +579,7 @@ void W4343WCard::printResponse(bool return_value)
 // WLAN interaction functions
 /////////////////////////////
 
+
 IOCTL_MSG ioctl_txmsg, ioctl_rxmsg;
 int txglom;
 uint16_t ioctl_reqid=0;
@@ -589,8 +594,19 @@ const char * event_status[MAX_EVENT_STATUS] = {
     "11HQUIET","SUPPRESS","NOCHANS","CCXFASTRM","CS_ABORT" };
 
 // Event handling
+#define DISP_BLOCKLEN       32
 uint8_t eventbuff[1600];
+
+IOCTL_EVENT_HDR ieh;
+ETH_EVENT_FRAME *eep = (ETH_EVENT_FRAME *)eventbuff;
+
 EVT_STR escan_evts[] = ESCAN_EVTS;
+// Event groups
+EVT_STR join_evts[]=JOIN_EVTS, no_evts[]=NO_EVTS;
+// Event field displays
+char eth_hdr_fields[]   = "6:dest 6:srce 2;type";
+char event_hdr_fields[] = "2;sub 2;len 1: 3;oui 2;usr";
+char event_msg_fields[] = "2;ver 2;flags 4;type 4;status 4;reason 4:auth 4;dlen 6;addr 18:";
 
 // Network scan parameters
 brcmf_escan_params_le scan_params = {
@@ -636,8 +652,7 @@ brcmf_escan_params_le scan_params_v2 = {
   }
 };
 
-uint8_t resp[256] = {0};
-IOCTL_EVENT_HDR ieh;
+uint8_t resp[256] = {0}, eth[7]={0};
 escan_result *erp = (escan_result *)eventbuff;
 bool clkval = false;
 bool ledon = false;
@@ -720,7 +735,7 @@ void W4343WCard::ScanNetworks()
   }
 
   while (1) {
-    delay(1000);
+//    delay(1000);
     uint32_t n = ioctl_get_event(&ieh, eventbuff, sizeof(eventbuff));
     
     if (n > sizeof(escan_result)) {
@@ -731,6 +746,92 @@ void W4343WCard::ScanNetworks()
     }
   }
 }
+
+//----------------------------------------------------------------------
+// JoinNetworks() added 02-20-25 WW
+//----------------------------------------------------------------------
+void W4343WCard::JoinNetworks(const char *ssID, const char *passphrase, int security) {
+    int ticks=0, ledon=0, n, startime=micros();
+    
+    // Process SSID
+	wlc_ssid_t ssid;
+	ssid.SSID_len = strlen(ssID);
+	strcpy((char *)ssid.SSID, ssID);
+    // Process PASSWORD
+	wsec_pmk_t wsec_pmk;
+	wsec_pmk.key_len = strlen(passphrase);
+	wsec_pmk.flags = WSEC_PASSPHRASE;
+	strcpy((char *)wsec_pmk.key, passphrase);
+    
+    cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, resp, 64);
+    n = ioctl_get_data("cur_etheraddr", 0, eth, 6);
+    Serial.printf("MAC address ");
+    if (n)
+      printMACAddress(eth);
+    else
+      printf("unavailable");
+    n = ioctl_get_data("ver", 0, resp, sizeof(resp));
+    Serial.printf("\nFirmware %s\n", (n ? (char *)resp : "not responding"));
+    if (!ioctl_set_data("country", 100, &country_struct, sizeof(country_struct)))
+        Serial.printf("Can't set country\n");
+    if (!ioctl_wr_int32(WLC_UP, 200, 0)) Serial.printf("WiFi CPU not running\n");
+
+    ioctl_enable_evts(no_evts);
+    CHECK(ioctl_wr_int32, WLC_SET_INFRA, 50, 1);
+    CHECK(ioctl_wr_int32, WLC_SET_AUTH, 0, 0);
+    if(security != 0) {
+      CHECK(ioctl_wr_int32, WLC_SET_WSEC, 0, security==2 ? 6 : 2);
+      CHECK(ioctl_set_intx2, "bsscfg:sup_wpa", 0, 0, 1);
+      CHECK(ioctl_set_intx2, "bsscfg:sup_wpa2_eapver", 0, 0, -1);
+      CHECK(ioctl_set_intx2, "bsscfg:sup_wpa_tmo", 0, 0, 2500);
+      CHECK(ioctl_wr_data, WLC_SET_WSEC_PMK, 0, &wsec_pmk, sizeof(wsec_pmk));
+      CHECK(ioctl_wr_int32, WLC_SET_WPA_AUTH, 0, security==2 ? 0x80 : 4);
+    } else {
+      CHECK(ioctl_wr_int32, WLC_SET_WSEC, 0, 0);
+      CHECK(ioctl_wr_int32, WLC_SET_WPA_AUTH, 0, 0);
+    }
+    ioctl_enable_evts(join_evts);
+    CHECK(ioctl_wr_data, WLC_SET_SSID, 100, &ssid, sizeof(ssid));
+
+    while (1)
+    {
+// This area is unfinished!!!! More work needed!!!
+delay(2000);  // Temporary delay to see what's going on...
+//        delayMicroseconds(SD_CLK_DELAY);
+//        if (ustimeout(&ticks, 20000))
+//        {
+//            digitalWrite(LED_PIN, ledon = !ledon);
+//            if (!ledon)
+//            {
+//                Serial.printf(".");
+//            }
+//            else
+//            {
+                if ((n=ioctl_get_event(&ieh, eventbuff, sizeof(eventbuff))) > 0)
+                {
+                    Serial.printf("\n%2.3f ", (micros() - startime) / 1e6);
+                    disp_fields(&ieh, ioctl_event_hdr_fields, n);
+                    Serial.printf("\n");
+                    disp_bytes((uint8_t *)&ieh, sizeof(ieh));
+                    Serial.printf("\n");
+                    disp_fields(&eep->eth_hdr, eth_hdr_fields, sizeof(eep->eth_hdr));
+                    if (SWAP16(eep->eth_hdr.ethertype) == 0x886c)
+                    {
+                        disp_fields(&eep->event.hdr, event_hdr_fields, sizeof(eep->event.hdr));
+                        Serial.printf("\n");
+                        disp_fields(&eep->event.msg, event_msg_fields, sizeof(eep->event.msg));
+                        Serial.printf("%s %s", ioctl_evt_str(SWAP32(eep->event.msg.event_type)),
+                               ioctl_evt_status_str(SWAP32(eep->event.msg.status)));
+                    }
+                    Serial.printf("\n");
+                    disp_block(eventbuff, n);
+                    Serial.printf("\n");
+                }
+//            }
+//        }
+    }
+}
+//----------------------------------------------------------------------
 
 ///////////////////////////
 ///////////////////////////
@@ -797,6 +898,21 @@ int W4343WCard::ioctl_set_data(const char *name, int wait_msec, void *data, int 
 {
     return ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, data, len);
 }
+
+//----------------------------------------------------------------------
+// IOCTL write data - added 02-20-25 WW
+int W4343WCard::ioctl_wr_data(int cmd, int wait_msec, void *data, int len)
+{
+    return(ioctl_cmd(cmd, 0, wait_msec, 1, data, len));
+}
+
+//----------------------------------------------------------------------
+// IOCTL read data - added 02-20-25 WW
+int W4343WCard::ioctl_rd_data(int cmd, int wait_msec, void *data, int len)
+{
+    return(ioctl_cmd(cmd, 0, wait_msec, 0, data, len));
+}
+//----------------------------------------------------------------------
 
 // Do an IOCTL transaction, get response, optionally waiting for it
 int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void *data, int dlen)
@@ -1518,3 +1634,109 @@ uint32_t W4343WCard::kHzSdClk() {
   return m_sdClkKhz;
 }
 //------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+// Display fields in structure Added 02-21-25.
+// Fields in descriptor are num:id (little-endian) or num:id (big_endian)
+//------------------------------------------------------------------------------
+void W4343WCard::disp_fields(void *data, char *fields, int maxlen)
+{
+    char *strs=fields, delim=0;
+    uint8_t *dp = (uint8_t *)data;
+    int n, dlen;
+    int val;
+    
+    while (*strs && dp-(uint8_t *)data<maxlen)
+    {
+        dlen = 0;
+        while (*strs>='0' && *strs<='9')
+            dlen = dlen*10 + *strs++ - '0';
+        delim = *strs++;
+        if (*strs > ' ')
+        {
+            while (*strs >= '0')
+                putchar(*strs++);
+            putchar('=');
+            if (dlen <= 4)
+            {
+                val = 0;
+                for (n=0; n<dlen; n++)
+                    val |= (uint32_t)(*dp++) << ((delim==':' ? n : dlen-n-1) * 8);
+                Serial.printf("%02X ", val);
+            }
+            else
+            {
+                for (n=0; n<dlen; n++)
+                    Serial.printf("%02X", *dp++);
+                putchar(' ');
+            }
+        }
+        else
+            dp += dlen;
+        while (*strs == ' ')
+            strs++;
+    }
+}
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// Display block of data added 02-21-25
+//----------------------------------------------------------------------
+void W4343WCard::disp_block(uint8_t *data, int len)
+{
+    int i=0, n;
+
+    while (i < len)
+    {
+        if (i > 0)
+            Serial.printf("\n");
+        n = MIN(len-i, DISP_BLOCKLEN);
+        disp_bytes(&data[i], n);
+        i += n;
+        fflush(stdout);
+    }
+}
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// Dump data as byte values Added 02-21-25
+//----------------------------------------------------------------------
+void W4343WCard::disp_bytes(uint8_t *data, int len)
+{
+    while (len--)
+       Serial.printf("%02x ", *data++);
+}
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// Return string corresponding to event status Added 02-21-25
+//----------------------------------------------------------------------
+const char *W4343WCard::ioctl_evt_status_str(int status)
+{
+    return(status>=0 && status<MAX_EVENT_STATUS ? event_status[status] : "?");
+}
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// Return string corresponding to event number, without "WLC_E_" prefix Added 02-21-25
+//----------------------------------------------------------------------
+const char *W4343WCard::ioctl_evt_str(int event)
+{
+    EVT_STR *evtp=current_evts;
+
+    while (evtp && evtp->num>=0 && evtp->num!=event)
+        evtp++;
+    return(evtp && evtp->num>=0 && strlen(evtp->str)>6 ? &evtp->str[6] : "?");
+}
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// Set 2 integers in IOCTL variable Added 02-21-25
+//----------------------------------------------------------------------
+int W4343WCard::ioctl_set_intx2(char *name, int wait_msec, int val1, int val2)
+{
+    int data[2] = {val1, val2};
+
+    return(ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, data, 8));
+}
+//----------------------------------------------------------------------
