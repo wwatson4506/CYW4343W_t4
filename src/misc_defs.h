@@ -3,6 +3,10 @@
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
+#define SWAP16(x) ((x&0xff)<<8 | (x&0xff00)>>8)
+#define SWAP32(x) ((x&0xff)<<24 | (x&0xff00)<<8 | (x&0xff0000)>>8 | (x&0xff000000)>>24)
+
+#define LED_PIN         10
 
 #define USE_DEBUG_COLORS
 
@@ -39,4 +43,8 @@
 #define SER_USER ""
 #define SER_GREY ""
 #endif //USE_DEBUG_COLORS
+
+#define COUNTRY         "US"
+#define COUNTRY_REV     -1
+
 // EOF
