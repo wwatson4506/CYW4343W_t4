@@ -767,7 +767,7 @@ void W4343WCard::JoinNetworks(const char *ssID, const char *passphrase, int secu
     while (1)
     {
 // This area is unfinished!!!! More work needed!!!
-delay(2000);  // Temporary delay to see what's going on...
+delay(1000);  // Temporary delay to see what's going on...
 //        delayMicroseconds(SD_CLK_DELAY);
 //        if (ustimeout(&ticks, 20000))
 //        {
@@ -797,6 +797,7 @@ delay(2000);  // Temporary delay to see what's going on...
                     Serial.printf("\n");
                     disp_block(eventbuff, n);
                     Serial.printf("\n");
+
                 }
 //            }
 //        }
@@ -1624,8 +1625,8 @@ void W4343WCard::disp_fields(void *data, char *fields, int maxlen)
         if (*strs > ' ')
         {
             while (*strs >= '0')
-                putchar(*strs++);
-            putchar('=');
+                Serial.printf("%c",*strs++);
+            Serial.printf("%c",'=');
             if (dlen <= 4)
             {
                 val = 0;
@@ -1637,7 +1638,7 @@ void W4343WCard::disp_fields(void *data, char *fields, int maxlen)
             {
                 for (n=0; n<dlen; n++)
                     Serial.printf("%02X", *dp++);
-                putchar(' ');
+                Serial.printf("%c",' ');
             }
         }
         else
