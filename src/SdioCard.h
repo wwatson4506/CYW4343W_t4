@@ -128,14 +128,14 @@ class W4343WCard  {
   void printSSID(uint8_t * data);
   void getFirmwareVersion();
   void ScanNetworks();
-
   void JoinNetworks(const char *ssID, const char *passphrase, int security);
+
   void disp_fields(void *data, char *fields, int maxlen);
   void disp_block(uint8_t *data, int len);
   void disp_bytes(uint8_t *data, int len);
   const char *ioctl_evt_status_str(int status);
   const char *ioctl_evt_str(int event);
-  int ioctl_set_intx2(char *name, int wait_msec, int val1, int val2);
+  int ioctl_set_intx2(const char *name, int wait_msec, int val1, int val2);
   
   ///////////////////////////////
   // End IRW new public functions

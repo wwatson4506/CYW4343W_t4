@@ -709,6 +709,9 @@ void W4343WCard::ScanNetworks()
 {
   uint32_t val = 0;
   
+  ioctl_set_uint32("bus:txglom", 20, 0); // tx glomming off
+  ioctl_set_uint32("apsta", 20, 1); // apsta on
+
   ioctl_wr_int32(IOCTL_SET_SCAN_CHANNEL_TIME, 0, SCAN_CHAN_TIME);
 
   if (!ioctl_wr_int32(WLC_UP, 200, 0)) {
@@ -938,30 +941,33 @@ int W4343WCard::ioctl_rd_data(int cmd, int wait_msec, void *data, int len)
 // Do an IOCTL transaction, get response, optionally waiting for it
 int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void *data, int dlen)
 {
-  static uint8_t txseq=1;
+  static uint8_t txseq = 1;
+
   IOCTL_MSG *msgp = &ioctl_txmsg, *rsp = &ioctl_rxmsg;
   IOCTL_CMD *cmdp = &msgp->cmd;
   int ret=0, namelen = name ? strlen(name)+1 : 0;
   int txdlen = wr ? namelen + dlen : MAX(namelen, dlen);
   int hdrlen = cmdp->data - (uint8_t *)&ioctl_txmsg;
-  int txlen = ((hdrlen + txdlen + 3) / 4) * 4; //, rxlen;
+  int txlen = hdrlen + txdlen; //((hdrlen + txdlen + 3) / 4) * 4; //, rxlen;
   uint32_t val = 0;
 
   // Prepare IOCTL command
   memset(msgp, 0, sizeof(ioctl_txmsg));
   memset(rsp, 0, sizeof(ioctl_rxmsg));
-  msgp->notlen = ~(msgp->len = hdrlen+txdlen);
+
+  msgp->len = txlen;
+  msgp->notlen = ~txlen & 0xffff;
   cmdp->seq = txseq++;
   cmdp->hdrlen = 12;
   cmdp->cmd = cmd;
   cmdp->outlen = txdlen;
-  cmdp->flags = ((uint32_t)++ioctl_reqid << 16) | (wr ? 2 : 0);
-  if (namelen)
+  cmdp->flags = (((uint32_t)++ioctl_reqid << 16) & 0xFFFF0000) | (wr ? 2 : 0);
+  if (namelen > 0)
     memcpy(cmdp->data, name, namelen);
   if (wr)
     memcpy(&cmdp->data[namelen], data, dlen);
   // Send IOCTL command
-  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, txlen, true);
+  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, CYW43_WRITE_BYTES_PAD(txlen), true);
 
   //TODO consider code in cyw43_ll_sdpcm_poll_device(), cyw43_ll.c, line 948
   ioctl_wait(IOCTL_WAIT_USEC);
@@ -974,7 +980,21 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
       // ..request response
       backplaneWindow_write32(SB_INT_STATUS_REG, val);
       // Fetch response
-      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp, txlen, true);
+      
+      //TODO - Temporarily break into header/data to compare lengths, help separate send/receive
+      uint16_t hdr[2];
+      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)hdr, 4);
+      
+      //Validate header size = not header size
+      if ((hdr[0] ^ hdr[1]) != 0xffff) {
+        Serial.printf(SER_ERROR "Header mismatch 0x%04x ^ 0x%04x\n" SER_RESET, hdr[0], hdr[1]);
+        return 0;
+      }
+
+      Serial.printf(SER_TRACE "\nhdr[0]: %ld, txlen: %ld\n" SER_RESET, hdr[0], txlen);
+
+      memcpy(rsp, hdr, 4);
+      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp + 4, hdr[0] - 4, true);
 
       // Discard response if not matching request
       if ((rsp->cmd.flags >> 16) != ioctl_reqid) {
@@ -1447,9 +1467,6 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   ////////////////////////
   ////////////////////////
 
-  //Disable pullups 
-  cardCMD52_write(SD_FUNC_BAK, BAK_PULLUP_REG, 0);
-  
   //Get chip ID again, and config base addr 
   cardCMD53_read(SD_FUNC_BAK, SB_32BIT_WIN, u32d.bytes, 4); // TODO Unused
   cardCMD53_read(SD_FUNC_BAK, SB_32BIT_WIN + 0xFC, u32d.bytes, 4); // TODO Unused
@@ -1598,6 +1615,10 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
     Serial.println(SER_GREEN "Set BUS_IORDY_REG validated" SER_RESET);
   }
 
+  //Disable pullups 
+  cardCMD52_write(SD_FUNC_BAK, BAK_PULLUP_REG, 0);
+  cardCMD52_read(SD_FUNC_BAK, BAK_PULLUP_REG, &readResponse);
+    
   backplaneWindow_write32(SB_INT_HOST_MASK_REG, 0x200000F0);
   backplaneWindow_read32(SR_CONTROL1, &u32d.uint32);
 
@@ -1751,7 +1772,7 @@ const char *W4343WCard::ioctl_evt_str(int event)
 //----------------------------------------------------------------------
 // Set 2 integers in IOCTL variable Added 02-21-25
 //----------------------------------------------------------------------
-int W4343WCard::ioctl_set_intx2(char *name, int wait_msec, int val1, int val2)
+int W4343WCard::ioctl_set_intx2(const char *name, int wait_msec, int val1, int val2)
 {
     int data[2] = {val1, val2};
 
