@@ -1,6 +1,7 @@
+// 7.45.98.102
+
 #include <Arduino.h>
 
-// 7.45.98.102
 #define FIRMWARE_LEN 421331 
 
 PROGMEM static const unsigned char firmware_bin[] = {

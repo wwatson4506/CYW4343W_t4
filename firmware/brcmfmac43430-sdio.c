@@ -1,6 +1,8 @@
+// Source: https://github.com/RPi-Distro/firmware-nonfree/blob/master/brcm/brcmfmac43430-sdio.bin
+// Source: https://github.com/jbentham/zerowi/tree/master/firmware
+
 #include <Arduino.h>
 
-// From https://github.com/RPi-Distro/firmware-nonfree/blob/master/brcm/brcmfmac43430-sdio.bin
 #define FIRMWARE_LEN 388740
 
 PROGMEM const unsigned char firmware_bin[] = {

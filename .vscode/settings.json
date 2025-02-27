@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "brcmfmac43430-sdio.c": "cpp"
+        "brcmfmac43430-sdio.c": "cpp",
+        "cyfmac43430-sdio-1dx-clm_blob.c": "cpp"
     }
 }
