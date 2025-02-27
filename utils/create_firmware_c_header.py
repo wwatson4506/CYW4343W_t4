@@ -1,11 +1,10 @@
 # Converts a firmware bin file to a c header file
-# Change input and output files
-def firmware_bin_convert():
-    with open("brcmfmac43430-sdio.bin", "rb") as f:    
+def firmware_bin_convert(inFile: str, outFile: str):
+    with open(inFile, "rb") as f:    
         # Read firmware bin file
         firmware_bin = f.read()
 
-    with open("brcmfmac43430-sdio-armbian.c", "w") as f:
+    with open(outFile, "w") as f:
         # Write header
         f.write("#include <Arduino.h>\n\n")
         f.write(f"#define FIRMWARE_LEN {len(firmware_bin)}\n\n")
@@ -24,13 +23,12 @@ def firmware_bin_convert():
         f.write("};\n")
 
 # Converts a firmware CLM file to a c header file
-# Change input and output files
-def firmware_clm_convert():
-    with open("cyfmac43430-sdio.1DX.clm_blob", "rb") as f:    
+def firmware_clm_convert(inFile: str, outFile: str):
+    with open(inFile, "rb") as f:    
         # Read firmware clm blob file
         firmware_clm = f.read()
 
-    with open("cyfmac43430-sdio-1DX-clm_blob.c", "w") as f:
+    with open(outFile, "w") as f:
         # Write header
         f.write("#include <Arduino.h>\n\n")
         f.write(f"#define FIRMWARE_CLM_LEN {len(firmware_clm)}\n\n")
@@ -48,4 +46,5 @@ def firmware_clm_convert():
         # Write footer
         f.write("};\n")
 
-firmware_clm_convert()
+#firmware_clm_convert("cyfmac43430-sdio.1DX.clm_blob", "cyfmac43430-sdio-1DX-clm_blob.c")
+firmware_bin_convert("brcmfmac43436s-sdio.bin", "brcmfmac43436s-sdio.c")
