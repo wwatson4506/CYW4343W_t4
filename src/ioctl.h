@@ -5,7 +5,6 @@
 extern "C" {
 #endif
 
-
 #include <Arduino.h>
 
 #include "../whd/whd_types.h"
@@ -21,9 +20,9 @@ extern "C" {
 #define SCANTYPE_ACTIVE     0
 #define SCANTYPE_PASSIVE    1
 
-
 #define IOCTL_WAIT_USEC     2000
-#define IOCTL_MAX_BLKLEN    256
+#define MAX_CHUNK_LEN       400
+#define IOCTL_MAX_BLKLEN    512
 #define SSID_MAXLEN         32
 
 #define EVENT_SET_SSID      0
@@ -32,6 +31,10 @@ extern "C" {
 #define EVENT_LINK          16
 #define EVENT_MAX           208
 #define SET_EVENT(msk, e)   msk[e/8] |= 1 << (e & 7)
+
+#define DL_BEGIN			0x0002
+#define DL_END				0x0004
+#define DL_TYPE_CLM		    2
 
 typedef struct {
     int32_t num;
@@ -45,6 +48,14 @@ typedef struct {
         EVT(WLC_E_DEAUTH_IND), EVT(WLC_E_DISASSOC_IND), EVT(WLC_E_PSK_SUP), EVT(-1)}
 
 #pragma pack(1)
+
+struct brcmf_dload_data_le {
+	uint16_t flag;
+	uint16_t dload_type;
+	uint32_t len;
+	uint32_t crc;
+	uint8_t data[1];
+};
 
 struct brcmf_ssid_le {
 	uint32_t SSID_len;
@@ -112,13 +123,17 @@ typedef struct {
 } ETH_EVENT_FRAME;
 
 typedef struct {
-    uint8_t  seq,       // sdpcm_sw_header
-             chan,
-             nextlen,
-             hdrlen,
-             flow,
-             credit,
-             reserved[2];
+    uint8_t seq,      
+            chan,
+            nextlen,
+            hdrlen,
+            flow,
+            credit,
+            reserved[2];
+} sdpcm_sw_header;
+
+typedef struct {
+    sdpcm_sw_header sw_header;
     uint32_t cmd;       // cdc_header
     uint16_t outlen,
              inlen;
@@ -152,16 +167,10 @@ typedef struct
 } IOCTL_MSG;
 
 typedef struct {
-    uint16_t len,       // sdpcm_header.frametag
-             notlen;
-    uint8_t  seq,       // sdpcm_sw_header
-             chan,
-             nextlen,
-             hdrlen,
-             flow,
-             credit,
-             reserved[2];
-} IOCTL_EVENT_HDR;
+    uint16_t        len,       // sdpcm_header.frametag
+                    notlen;
+    sdpcm_sw_header sw_header;
+} sdpcm_header_t;
 
 // Escan result event (excluding 12-byte IOCTL header)
 typedef struct {

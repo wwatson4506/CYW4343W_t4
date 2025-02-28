@@ -21,11 +21,11 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
- */
+*/
 
 
- //Broadcom full MAC driver source used for reference:
- //https://github.com/torvalds/linux/releases/tag/v5.6-rc4
+//Broadcom full MAC driver source used for reference:
+//https://github.com/torvalds/linux/releases/tag/v5.6-rc4
 
 #include <Arduino.h>
 #include "SdioTeensy4.h"
@@ -42,9 +42,10 @@
 //Firmware file
 ///////////////
 
-#include "../firmware/brcmfmac43430-sdio.c"                  // Zero:  Firmware wl0: Oct 23 2017 03:55:53 version 7.45.98.38 (r674442 CY) FWID 01-e58d219f
+//#include "../firmware/brcmfmac43430-sdio.c"                // Zero: Firmware wl0: Oct 23 2017 03:55:53 version 7.45.98.38 (r674442 CY) FWID 01-e58d219f
 //#include "../firmware/w4343WA1_7_45_98_50_combined.h"      // CYW43: Firmware wl0: Apr 30 2018 04:14:19 version 7.45.98.50 (r688715 CY) FWID 01-283fcdb9
 //#include "../firmware/w4343WA1_7_45_98_102_combined.h"     // CYW43: Firmware wl0: Jun 18 2020 08:48:22 version 7.45.98.102 (r726187 CY) FWID 01-36dd36be
+#include "../firmware/brcmfmac43430-sdio-armbian.c"          // Firmware wl0: Mar 30 2021 01:12:21 version 7.45.98.118 (7d96287 CY) FWID 01-32059766
 //#include "../firmware/cyfmac43430_fmac_7_45_98_125-sdio.c" // fmac:  Firmware wl0: Aug 16 2022 03:05:14 version 7.45.98.125 (5b7978c CY) FWID 01-f420b81d
 
 ////////////
@@ -52,6 +53,11 @@
 /////////////
 #include "../firmware/wifi_nvram_4343W_zero.h"
 //#include "../firmware/wifi_nvram_1dx.h"
+
+//////////
+//CLM file
+//////////
+#include "../firmware/cyfmac43430-sdio-1DX-clm_blob.c"
 
 
 
@@ -63,14 +69,21 @@ volatile bool W4343WCard::dataISRReceived = false;
 volatile bool W4343WCard::fUseSDIO2 = false;
 
 wl_country_t country_struct = {.country_abbrev=COUNTRY, .rev=COUNTRY_REV, .ccode=COUNTRY};
-#define CHECK(f, a, ...) {if (!f(a, __VA_ARGS__)) \
-                          Serial.printf("Error: %s(%s ...)\n", #f, #a);}
+
+
+#define CHECK(f, a, ...) {if (f(a, __VA_ARGS__) == false) {\
+                          Serial.printf(SER_RED "\nError: %s(%s ...)\n" SER_RESET, #f, #a);}\
+                        else {\
+                          Serial.printf(SER_TRACE "\nSuccess: %s(%s ...)\n" SER_RESET, #f, #a);}\
+                        }
+                        
 
 #define DBG_TRACE Serial.print("TRACE."); Serial.println(__LINE__); delay(200);
 #define USE_DEBUG_MODE 1
 #if USE_DEBUG_MODE
 #define DBG_IRQSTAT() if (m_psdhc->INT_STATUS) {Serial.print(__LINE__);\
         Serial.print(" IRQSTAT "); Serial.print(SER_RED); Serial.println(m_psdhc->INT_STATUS, HEX); Serial.print(SER_RESET);}
+
 void W4343WCard::printRegs(uint32_t line) {
   uint32_t blkattr = m_psdhc->BLK_ATT;
   uint32_t xfertyp = m_psdhc->CMD_XFR_TYP;
@@ -178,13 +191,17 @@ void W4343WCard::gpioMux(uint8_t mode) {
 // Switches DAT1 to SDIO mode
 void W4343WCard::makeSDIO_DAT1()
 {
-  fUseSDIO2 == false ? IOMUXC_SW_MUX_CTL_PAD_GPIO_SD_B0_03 = 0x00 : IOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_05 = 0x06;
+  if (m_wlIrqPin != -1) {
+    fUseSDIO2 == false ? IOMUXC_SW_MUX_CTL_PAD_GPIO_SD_B0_03 = 0x00 : IOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_05 = 0x06;
+  }
 }
 
 //Switches DAT1 to GPIO mode to enable interrupt when data ready
 void W4343WCard::makeGPIO_DAT1()
 {
-  fUseSDIO2 == false ? IOMUXC_SW_MUX_CTL_PAD_GPIO_SD_B0_03 = 0x05 : IOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_05 = 0x05;
+  if (m_wlIrqPin != -1) {
+    fUseSDIO2 == false ? IOMUXC_SW_MUX_CTL_PAD_GPIO_SD_B0_03 = 0x05 : IOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_05 = 0x05;
+  }
 }
 
 //------------------------------------------------------------------------------
@@ -316,7 +333,6 @@ void W4343WCard::setBlockCountSize(bool blockMode, uint32_t functionNumber, uint
   // Set up block count and block size
   if (blockMode == true) {
     switch (functionNumber) {
-      //TODO What is the correct BLKSIZE for SD_FUNC_BUS?
       case SD_FUNC_BUS: m_psdhc->BLK_ATT = SDHC_BLKATTR_BLKCNT(size) | SDHC_BLKATTR_BLKSIZE(64); 
                         break;
       case SD_FUNC_BAK: m_psdhc->BLK_ATT = SDHC_BLKATTR_BLKCNT(size) | SDHC_BLKATTR_BLKSIZE(SD_BAK_BLK_BYTES);
@@ -570,11 +586,42 @@ bool W4343WCard::uploadNVRAM(size_t nvRAMSize, uintptr_t source)
   return true;
 }
 
-void W4343WCard::printResponse(bool return_value)
+bool W4343WCard::uploadCLM()
 {
-  Serial.printf("RSP: 0x%4.4X  0x%4.4X  0x%4.4X  0x%4.4X   RET: 0x%02X\n",m_psdhc->CMD_RSP0, m_psdhc->CMD_RSP1, m_psdhc->CMD_RSP2, m_psdhc->CMD_RSP3, return_value);
-}
+  brcmf_dload_data_le *chunk_buf;
+  int32_t datalen = FIRMWARE_CLM_LEN;
+	uint32_t cumulative_len = 0;
+  uint32_t ret = 0;
 
+  Serial.printf(SER_CYAN "\nUploading CLM, size: %ld\n" SER_RESET, sizeof(clm_data));
+  Serial.flush();
+
+  chunk_buf = (brcmf_dload_data_le *)malloc(sizeof(*chunk_buf) + MAX_CHUNK_LEN - 1);
+  chunk_buf->dload_type = DL_TYPE_CLM;
+  chunk_buf->crc = 0;
+
+  do {
+    chunk_buf->flag = (DLOAD_HANDLER_VER << DLOAD_FLAG_VER_SHIFT);
+    chunk_buf->len = datalen > MAX_CHUNK_LEN ? MAX_CHUNK_LEN : datalen;
+
+    if (cumulative_len == 0) {
+      chunk_buf->flag |= DL_BEGIN; 
+    } else if (datalen <= MAX_CHUNK_LEN) {
+			chunk_buf->flag |= DL_END;
+		}
+
+		memcpy(chunk_buf->data, clm_data + cumulative_len, chunk_buf->len);
+
+		ret = ioctl_set_data("clmload", 1500, chunk_buf, sizeof(brcmf_dload_data_le) + chunk_buf->len - 1, false);
+         
+		cumulative_len += chunk_buf->len;
+		datalen -= chunk_buf->len;
+	} while ((datalen > 0) && (ret == 1));
+
+  Serial.printf(SER_CYAN "\nCLM uploaded %ld/%ld result: %ld\n" SER_RESET, cumulative_len, FIRMWARE_CLM_LEN, ret);
+
+  return ret;
+}
 /////////////////////////////
 // WLAN interaction functions
 /////////////////////////////
@@ -596,13 +643,18 @@ const char * event_status[MAX_EVENT_STATUS] = {
 #define DISP_BLOCKLEN       32
 uint8_t eventbuff[1600];
 
-IOCTL_EVENT_HDR ieh;
+sdpcm_header_t ieh;
 ETH_EVENT_FRAME *eep = (ETH_EVENT_FRAME *)eventbuff;
+escan_result *erp = (escan_result *)eventbuff;
 
-EVT_STR escan_evts[] = ESCAN_EVTS;
+uint8_t resp[256] = {0}, eth[7]={0};
+
 // Event groups
-EVT_STR join_evts[]=JOIN_EVTS, no_evts[]=NO_EVTS;
+EVT_STR escan_evts[] = ESCAN_EVTS;
+EVT_STR join_evts[] = JOIN_EVTS;
+EVT_STR no_evts[] = NO_EVTS;
 // Event field displays
+
 char eth_hdr_fields[]   = "6:dest 6:srce 2;type";
 char event_hdr_fields[] = "2;sub 2;len 1: 3;oui 2;usr";
 char event_msg_fields[] = "2;ver 2;flags 4;type 4;status 4;reason 4:auth 4;dlen 6;addr 18:";
@@ -629,40 +681,11 @@ brcmf_escan_params_le scan_params = {
     }
 };
 
-////////////////
-//V2 scan params
-////////////////
-brcmf_escan_params_le scan_params_v2 = {
-  .version=2, .action=1, ._=0,
-  .params_v2_le {
-    .version = 2,
-    .ssid_le {
-      .SSID_len=0, .SSID={0}
-    }, 
-  .bssid={0xff,0xff,0xff,0xff,0xff,0xff}, .bss_type=2,
-  .pad = 0,
-  .scan_type=SCANTYPE_PASSIVE, .nprobes=-1, .active_time=-1,
-  .passive_time=-1, .home_time=-1, 
-#if SCAN_CHAN == 0
-  .nchans=14, .nssids=0, 
-  .chans={{1,0x2b},{2,0x2b},{3,0x2b},{4,0x2b},{5,0x2b},{6,0x2b},{7,0x2b},
-    {8,0x2b},{9,0x2b},{10,0x2b},{11,0x2b},{12,0x2b},{13,0x2b},{14,0x2b}},
-#else
-  .nchans=1, .nssids=0, .chans={{SCAN_CHAN,0x2b}}, .ssids={{0}}
-#endif
-  }
-};
-
-uint8_t resp[256] = {0}, eth[7]={0};
-escan_result *erp = (escan_result *)eventbuff;
-bool clkval = false;
-bool ledon = false;
-
 void W4343WCard::getMACAddress()
 {
   uint8_t eth[7]={0};
 
-  uint32_t n = ioctl_get_data("cur_etheraddr", 0, eth, 6);
+  uint32_t n = ioctl_get_data("cur_etheraddr", 0, eth, 6, false);
 
   Serial.printf("%sMAC address ", n > 0 ? SER_GREEN : SER_RED);
   if (n > 0) {
@@ -673,44 +696,40 @@ void W4343WCard::getMACAddress()
   Serial.println(SER_RESET);
 }
 
-void W4343WCard::printMACAddress(uint8_t * data)
-{
-  for (uint8_t i = 0; i < 6; i++) {
-    Serial.printf("%s%02X", i ? ":" : "", data[i]);
-  }
-}
-
-// Display SSID
-void W4343WCard::printSSID(uint8_t * data)
-{
-    int i = *data++;
-
-    if (i == 0 || *data == 0) {
-      Serial.printf("[hidden]");
-    } else if (i <= SSID_MAXLEN) {
-      Serial.printf(SER_GREEN);
-      while (i-- > 0) {
-        char c = static_cast<char>(*data++); 
-        Serial.print(c);
-      }
-      Serial.printf(SER_RESET);
-    } else {
-      Serial.printf("[invalid length %u]", i);
-   }
-}
-
 void W4343WCard::getFirmwareVersion()
 {
-  uint32_t n = ioctl_get_data("ver", 0, resp, sizeof(resp));
+  uint32_t n = ioctl_get_data("ver", 0, resp, sizeof(resp), false);
   Serial.printf("\n%sFirmware %s\n" SER_RESET, (n ? SER_GREEN : SER_RED), (n ? (char *)resp : "not responding"));
+}
+
+void W4343WCard::getCLMVersion()
+{
+  uint32_t n = ioctl_get_data("clmver", 0, resp, sizeof(resp), false);
+  Serial.printf("\n%sCLM version %s\n" SER_RESET, (n ? SER_GREEN : SER_RED), (n ? (char *)resp : "not responding"));
+}
+
+void W4343WCard::postInitSettings()
+{
+  ioctl_set_uint32("bus:txglom", 20, 0); // tx glomming off
+  //ioctl_set_uint32("bus:rxglom", 20, 0); // rx glomming off
+  ioctl_set_uint32("apsta", 20, 1); // apsta on
+
+  getCLMVersion();
+  uploadCLM();
+  getCLMVersion(); //Repeat to verify
+}
+
+
+void W4343WCard::pollEvents()
+{
+  while (1) {
+  
+  }
 }
 
 void W4343WCard::ScanNetworks()
 {
-  uint32_t val = 0;
-  
-  ioctl_set_uint32("bus:txglom", 20, 0); // tx glomming off
-  ioctl_set_uint32("apsta", 20, 1); // apsta on
+  Serial.printf(SER_TRACE "\nSetting scan channel time\n", SER_RESET);
 
   ioctl_wr_int32(IOCTL_SET_SCAN_CHANNEL_TIME, 0, SCAN_CHAN_TIME);
 
@@ -721,7 +740,9 @@ void W4343WCard::ScanNetworks()
     Serial.printf(SER_GREEN "\nWiFi CPU running\n" SER_RESET);
   }
 
-  backplaneWindow_write32(SB_INT_STATUS_REG, val);
+  //Clear interrupt?? TODO
+  backplaneWindow_write32(SB_INT_STATUS_REG, 0);
+
   cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)resp, 64);
 
   if (ioctl_enable_evts(escan_evts) == true) {
@@ -742,7 +763,7 @@ void W4343WCard::ScanNetworks()
   }
 
   while (1) {
-//    delay(1000);
+
     uint32_t n = ioctl_get_event(&ieh, eventbuff, sizeof(eventbuff));
     
     if (n > sizeof(escan_result)) {
@@ -760,85 +781,90 @@ void W4343WCard::ScanNetworks()
 // JoinNetworks() added 02-20-25 WW
 //----------------------------------------------------------------------
 void W4343WCard::JoinNetworks(const char *ssID, const char *passphrase, int security) {
-    int ticks=0, ledon=0, n, startime=micros();
+  int n, startime=micros();
     
-    // Process SSID
+  Serial.printf(SER_TRACE "\nIn joinNetworks\n", SER_RESET);
+
+  // Process SSID
 	wlc_ssid_t ssid;
 	ssid.SSID_len = strlen(ssID);
 	strcpy((char *)ssid.SSID, ssID);
-    // Process PASSWORD
+  
+  // Process PASSWORD
 	wsec_pmk_t wsec_pmk;
 	wsec_pmk.key_len = strlen(passphrase);
 	wsec_pmk.flags = WSEC_PASSPHRASE;
 	strcpy((char *)wsec_pmk.key, passphrase);
-    
-    cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, resp, 64);
-    n = ioctl_get_data("cur_etheraddr", 0, eth, 6);
-    Serial.printf("MAC address ");
-    if (n)
-      printMACAddress(eth);
-    else
-      printf("unavailable");
-    n = ioctl_get_data("ver", 0, resp, sizeof(resp));
-    Serial.printf("\nFirmware %s\n", (n ? (char *)resp : "not responding"));
-    if (!ioctl_set_data("country", 100, &country_struct, sizeof(country_struct)))
-        Serial.printf("Can't set country\n");
-    if (!ioctl_wr_int32(WLC_UP, 200, 0)) Serial.printf("WiFi CPU not running\n");
 
-    ioctl_enable_evts(no_evts);
-    CHECK(ioctl_wr_int32, WLC_SET_INFRA, 50, 1);
-    CHECK(ioctl_wr_int32, WLC_SET_AUTH, 0, 0);
-    if(security != 0) {
-      CHECK(ioctl_wr_int32, WLC_SET_WSEC, 0, security==2 ? 6 : 2);
-      CHECK(ioctl_set_intx2, "bsscfg:sup_wpa", 0, 0, 1);
-      CHECK(ioctl_set_intx2, "bsscfg:sup_wpa2_eapver", 0, 0, -1);
-      CHECK(ioctl_set_intx2, "bsscfg:sup_wpa_tmo", 0, 0, 2500);
-      CHECK(ioctl_wr_data, WLC_SET_WSEC_PMK, 0, &wsec_pmk, sizeof(wsec_pmk));
-      CHECK(ioctl_wr_int32, WLC_SET_WPA_AUTH, 0, security==2 ? 0x80 : 4);
-    } else {
-      CHECK(ioctl_wr_int32, WLC_SET_WSEC, 0, 0);
-      CHECK(ioctl_wr_int32, WLC_SET_WPA_AUTH, 0, 0);
-    }
-    ioctl_enable_evts(join_evts);
-    CHECK(ioctl_wr_data, WLC_SET_SSID, 100, &ssid, sizeof(ssid));
+  if (!ioctl_wr_int32(WLC_UP, 200, 0)) {
+    Serial.printf(SER_RED "\nWiFi CPU not running\n" SER_RESET);
+    return;
+  } else {
+    Serial.printf(SER_GREEN "\nWiFi CPU running\n" SER_RESET);
+  }
 
-    while (1)
+  if (ioctl_set_data("country", 100, &country_struct, sizeof(country_struct)) == true) {
+    Serial.printf(SER_TRACE "\nSet country succesfully\n" SER_RESET);
+  } else {
+    Serial.printf(SER_ERROR "\nFailed to set country\n" SER_RESET);
+  }
+  
+  if (ioctl_enable_evts(no_evts) == true) {
+    Serial.printf(SER_TRACE "\nNo events enabled\n" SER_RESET);
+  } else {
+    Serial.printf(SER_RED "\nNo events not enabled\n" SER_RESET);
+    return;
+  }
+  
+  CHECK(ioctl_set_uint32, "ampdu_ba_wsize", 0, 8);
+
+  CHECK(ioctl_wr_int32, WLC_SET_INFRA, 50, 1);
+  CHECK(ioctl_wr_int32, WLC_SET_AUTH, 0, 0);
+
+  if(security != 0) {
+    CHECK(ioctl_wr_int32, WLC_SET_WSEC, 0, security == 2 ? 6 : 2);
+    CHECK(ioctl_set_intx2, "bsscfg:sup_wpa", 0, 0, 1);
+    CHECK(ioctl_set_intx2, "bsscfg:sup_wpa2_eapver", 0, 0, -1);
+    CHECK(ioctl_set_intx2, "bsscfg:sup_wpa_tmo", 0, 0, 2500);
+    CHECK(ioctl_wr_data, WLC_SET_WSEC_PMK, 0, &wsec_pmk, sizeof(wsec_pmk));
+    CHECK(ioctl_wr_int32, WLC_SET_WPA_AUTH, 0, security==2 ? 0x80 : 4);
+  } else {
+    CHECK(ioctl_wr_int32, WLC_SET_WSEC, 0, 0);
+    CHECK(ioctl_wr_int32, WLC_SET_WPA_AUTH, 0, 0);
+  }
+  
+  if (ioctl_enable_evts(join_evts) == true) {
+    Serial.printf(SER_TRACE "\nJoin events enabled\n" SER_RESET);
+  } else {
+    Serial.printf(SER_RED "\nJoin events not enabled\n" SER_RESET);
+    return;
+  }
+
+  CHECK(ioctl_wr_data, WLC_SET_SSID, 100, &ssid, sizeof(ssid));
+
+  while (1)
+  {
+    if ((n=ioctl_get_event(&ieh, eventbuff, sizeof(eventbuff))) > 0)
     {
-// This area is unfinished!!!! More work needed!!!
-delay(2000);  // Temporary delay to see what's going on...
-//        delayMicroseconds(SD_CLK_DELAY);
-//        if (ustimeout(&ticks, 20000))
-//        {
-//            digitalWrite(LED_PIN, ledon = !ledon);
-//            if (!ledon)
-//            {
-//                Serial.printf(".");
-//            }
-//            else
-//            {
-                if ((n=ioctl_get_event(&ieh, eventbuff, sizeof(eventbuff))) > 0)
-                {
-                    Serial.printf("\n%2.3f ", (micros() - startime) / 1e6);
-                    disp_fields(&ieh, ioctl_event_hdr_fields, n);
-                    Serial.printf("\n");
-                    disp_bytes((uint8_t *)&ieh, sizeof(ieh));
-                    Serial.printf("\n");
-                    disp_fields(&eep->eth_hdr, eth_hdr_fields, sizeof(eep->eth_hdr));
-                    if (SWAP16(eep->eth_hdr.ethertype) == 0x886c)
-                    {
-                        disp_fields(&eep->event.hdr, event_hdr_fields, sizeof(eep->event.hdr));
-                        Serial.printf("\n");
-                        disp_fields(&eep->event.msg, event_msg_fields, sizeof(eep->event.msg));
-                        Serial.printf("%s %s", ioctl_evt_str(SWAP32(eep->event.msg.event_type)),
-                               ioctl_evt_status_str(SWAP32(eep->event.msg.status)));
-                    }
-                    Serial.printf("\n");
-                    disp_block(eventbuff, n);
-                    Serial.printf("\n");
-                }
-//            }
-//        }
+      Serial.printf("\n%2.3f ", (micros() - startime) / 1e6);
+      disp_fields(&ieh, ioctl_event_hdr_fields, n);
+      Serial.printf("\n");
+      disp_bytes((uint8_t *)&ieh, sizeof(ieh));
+      Serial.printf("\n");
+      disp_fields(&eep->eth_hdr, eth_hdr_fields, sizeof(eep->eth_hdr));
+      if (SWAP16(eep->eth_hdr.ethertype) == 0x886c)
+      {
+          disp_fields(&eep->event.hdr, event_hdr_fields, sizeof(eep->event.hdr));
+          Serial.printf("\n");
+          disp_fields(&eep->event.msg, event_msg_fields, sizeof(eep->event.msg));
+          Serial.printf("%s %s", ioctl_evt_str(SWAP32(eep->event.msg.event_type)),
+                  ioctl_evt_status_str(SWAP32(eep->event.msg.status)));
+      }
+      Serial.printf("\n");
+      disp_block(eventbuff, n);
+      Serial.printf("\n");
     }
+  }
 }
 //----------------------------------------------------------------------
 
@@ -846,62 +872,38 @@ delay(2000);  // Temporary delay to see what's going on...
 ///////////////////////////
 ///////////////////////////
 
-bool W4343WCard::set_iovar_mpc(uint8_t val)
+int W4343WCard::set_iovar_mpc(uint8_t val)
 {
   Serial.printf(SER_TRACE "\n%s MPC\n" SER_RESET, (val == 0 ? "Disable" : "Enable"));
   int res = ioctl_set_uint32("mpc", 20, 1);
   return res;
 }
 
-// Get event data, return data length excluding header
-uint32_t W4343WCard::ioctl_get_event(IOCTL_EVENT_HDR *hp, uint8_t *data, int maxlen)
+// Get an unsigned integer IOCTL variable
+int W4343WCard::ioctl_get_uint32(const char * name, int wait_msec,  uint8_t *data)
 {
-    int n=0, dlen=0, blklen;
-
-    hp->len = 0;
-    bool res = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)hp, sizeof(IOCTL_EVENT_HDR), false);
-    //Serial.printf(SER_CYAN "Init Read: %ld, IOCTL_EVENT_HDR struct size: %ld\n" SER_RESET, hp->len, sizeof(IOCTL_EVENT_HDR));
-    if (res == true && hp->len > sizeof(IOCTL_EVENT_HDR) && hp->notlen > 0 && hp->len == (hp->notlen^0xffff))
-    {
-        dlen = hp->len - sizeof(IOCTL_EVENT_HDR);
-        while (n < dlen && n < maxlen)
-        {
-            blklen = MIN(MIN(maxlen - n, hp->len - n), IOCTL_MAX_BLKLEN);
-            cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)(&data[n]), blklen, false);
-            n += blklen;
-        }
-        //Read and discard remaining bytes over maxlen
-        while (n < dlen)
-        {
-            blklen = MIN(hp->len - n, IOCTL_MAX_BLKLEN);
-            cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, 0, blklen, false);
-            n += blklen;
-        }
-    }
-    return dlen > maxlen ? maxlen : dlen;
+  return ioctl_cmd(WLC_GET_VAR, name, wait_msec, 0, data, 4);
 }
 
-// Enable events
-int W4343WCard::ioctl_enable_evts(EVT_STR *evtp)
-{
-    current_evts = evtp;
-    memset(event_mask, 0, sizeof(event_mask));
-    while (evtp->num >= 0)
-    {
-        if (evtp->num / 8 < (int32_t)sizeof(event_mask))
-            SET_EVENT(event_mask, evtp->num);
-        evtp++;
-    }
-    return ioctl_set_data("event_msgs", 0, event_mask, sizeof(event_mask));
-}
 
 // Set an unsigned integer IOCTL variable
 int W4343WCard::ioctl_set_uint32(const char * name, int wait_msec, uint32_t val)
 {
-    u32Data u32 = {.uint32=val};
+  u32Data u32 = {.uint32=val};
 
-    return(ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, u32.bytes, 4));
+  return ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, u32.bytes, 4);
 }
+
+//----------------------------------------------------------------------
+// Set 2 integers in IOCTL variable Added 02-21-25
+//----------------------------------------------------------------------
+int W4343WCard::ioctl_set_intx2(const char *name, int wait_msec, int32_t val1, int32_t val2)
+{
+  int32_t data[2] = {val1, val2};
+
+  return ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, data, 8);
+}
+//----------------------------------------------------------------------
 
 // IOCTL write with integer parameter
 int W4343WCard::ioctl_wr_int32(int cmd, int wait_msec, int val)
@@ -912,22 +914,22 @@ int W4343WCard::ioctl_wr_int32(int cmd, int wait_msec, int val)
 }
 
 // Get data block from IOCTL variable
-int W4343WCard::ioctl_get_data(const char *name, int wait_msec, uint8_t *data, int dlen)
+int W4343WCard::ioctl_get_data(const char *name, int wait_msec, uint8_t *data, int dlen, bool logOutput)
 {
-  return ioctl_cmd(WLC_GET_VAR, name, wait_msec, 0, data, dlen);
+  return ioctl_cmd(WLC_GET_VAR, name, wait_msec, 0, data, dlen, logOutput);
 }
 
 // Set data block in IOCTL variable
-int W4343WCard::ioctl_set_data(const char *name, int wait_msec, void *data, int len)
+int W4343WCard::ioctl_set_data(const char *name, int wait_msec, void *data, int len, bool logOutput)
 {
-    return ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, data, len);
+  return ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, data, len, logOutput);
 }
 
 //----------------------------------------------------------------------
 // IOCTL write data - added 02-20-25 WW
 int W4343WCard::ioctl_wr_data(int cmd, int wait_msec, void *data, int len)
 {
-    return(ioctl_cmd(cmd, 0, wait_msec, 1, data, len));
+  return ioctl_cmd(cmd, 0, wait_msec, 1, data, len);
 }
 
 //----------------------------------------------------------------------
@@ -939,38 +941,68 @@ int W4343WCard::ioctl_rd_data(int cmd, int wait_msec, void *data, int len)
 //----------------------------------------------------------------------
 
 // Do an IOCTL transaction, get response, optionally waiting for it
-int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void *data, int dlen)
+
+bool had_successful_packet = false;
+int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void *data, int dlen, bool logOutput)
 {
   static uint8_t txseq = 1;
 
-  IOCTL_MSG *msgp = &ioctl_txmsg, *rsp = &ioctl_rxmsg;
+  IOCTL_MSG *msgp = &ioctl_txmsg;
   IOCTL_CMD *cmdp = &msgp->cmd;
-  int ret=0, namelen = name ? strlen(name)+1 : 0;
+  int namelen = name ? strlen(name)+1 : 0;
   int txdlen = wr ? namelen + dlen : MAX(namelen, dlen);
   int hdrlen = cmdp->data - (uint8_t *)&ioctl_txmsg;
   int txlen = hdrlen + txdlen; //((hdrlen + txdlen + 3) / 4) * 4; //, rxlen;
-  uint32_t val = 0;
-
+  
   // Prepare IOCTL command
   memset(msgp, 0, sizeof(ioctl_txmsg));
-  memset(rsp, 0, sizeof(ioctl_rxmsg));
 
+  
   msgp->len = txlen;
   msgp->notlen = ~txlen & 0xffff;
-  cmdp->seq = txseq++;
-  cmdp->hdrlen = 12;
+  cmdp->sw_header.seq = txseq++;
+  cmdp->sw_header.hdrlen = 12;
   cmdp->cmd = cmd;
   cmdp->outlen = txdlen;
   cmdp->flags = (((uint32_t)++ioctl_reqid << 16) & 0xFFFF0000) | (wr ? 2 : 0);
   if (namelen > 0)
-    memcpy(cmdp->data, name, namelen);
+  memcpy(cmdp->data, name, namelen);
   if (wr)
-    memcpy(&cmdp->data[namelen], data, dlen);
+  memcpy(&cmdp->data[namelen], data, dlen);
   // Send IOCTL command
-  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, CYW43_WRITE_BYTES_PAD(txlen), true);
+  cardCMD53_write(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)msgp, CYW43_WRITE_BYTES_PAD(txlen), logOutput);
+  
+  return ioctl_cmd_poll_device(wait_msec, wr, data, dlen, logOutput);
+}
+
+int W4343WCard::ioctl_cmd_poll_device(int wait_msec, int wr, void *data, int dlen, bool logOutput)
+{
+  IOCTL_MSG *rsp = &ioctl_rxmsg;
+  int ret = 0;
+  uint32_t val = 0;
+  
+  memset(rsp, 0, sizeof(ioctl_rxmsg));
 
   //TODO consider code in cyw43_ll_sdpcm_poll_device(), cyw43_ll.c, line 948
-  ioctl_wait(IOCTL_WAIT_USEC);
+  Serial.printf(SER_TRACE "Waiting for response" SER_RESET);
+  uint32_t start = micros();
+  while (dataISRReceived == false) {}
+  Serial.printf(SER_MAGENTA " - IRQ response in %lduS\n", micros()-start);
+  dataISRReceived = false;
+  //ioctl_wait(IOCTL_WAIT_USEC);
+
+  /*
+  if (had_successful_packet == false) {
+    // Clear interrupt status so that HOST_WAKE/SDIO line is cleared
+    uint32_t int_status = backplaneWindow_read32(SB_INT_STATUS_REG, &val);
+    Serial.printf("val: 0x%02X\n", val);
+    if (val & 0x000000f0) {
+      Serial.printf(SER_WARN "Clearing SDIO_INT_STATUS 0x%x\n" SER_RESET, (int)(val & 0xf0));
+      backplaneWindow_write32(SB_INT_STATUS_REG, val & 0xf0);
+    }
+  }
+    */
+
   while (wait_msec >= 0 && ret == 0) {
     // Wait for response to be available
     wait_msec -= IOCTL_POLL_MSEC;
@@ -983,18 +1015,24 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
       
       //TODO - Temporarily break into header/data to compare lengths, help separate send/receive
       uint16_t hdr[2];
-      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)hdr, 4);
+      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)hdr, 4, logOutput);
       
+      if (hdr[0] == 0 && hdr[1] == 0) {
+        // no packets
+        Serial.printf(SER_ERROR "No packets\n" SER_RESET);
+        had_successful_packet = false;
+
+        return 1;
+    }
+    had_successful_packet = true;
       //Validate header size = not header size
       if ((hdr[0] ^ hdr[1]) != 0xffff) {
         Serial.printf(SER_ERROR "Header mismatch 0x%04x ^ 0x%04x\n" SER_RESET, hdr[0], hdr[1]);
         return 0;
       }
 
-      Serial.printf(SER_TRACE "\nhdr[0]: %ld, txlen: %ld\n" SER_RESET, hdr[0], txlen);
-
       memcpy(rsp, hdr, 4);
-      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp + 4, hdr[0] - 4, true);
+      ret = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)rsp + 4, hdr[0] - 4, logOutput);
 
       // Discard response if not matching request
       if ((rsp->cmd.flags >> 16) != ioctl_reqid) {
@@ -1023,9 +1061,9 @@ int W4343WCard::ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void
 }
 
 // Wait until IOCTL command has been processed. Pins need to be in GPIO mode for this read to work
-bool W4343WCard::ioctl_wait(int usec)
+int W4343WCard::ioctl_wait(int usec)
 {
-  bool ready = false;
+  int ready = 0;
   uint32_t startMicros = micros();
   //TODO restore wait time before timeout, or switch to interrupt - currently takes significantly longer than the requested timeout
   while (ready == false) {// && !(micros() > startMicros + (usec * 2))) {
@@ -1035,6 +1073,70 @@ bool W4343WCard::ioctl_wait(int usec)
   Serial.printf("%s Ready in %lduS, expected %lduS\n" SER_RESET, ready == true ? SER_MAGENTA "Is": SER_RED "Not", micros()- startMicros, usec);
   return ready;
 }
+
+// Get event data, return data length excluding header
+uint32_t W4343WCard::ioctl_get_event(sdpcm_header_t *hp, uint8_t *data, int maxlen)
+{
+    int n=0, dlen=0, blklen;
+
+    hp->len = 0;
+    bool res = cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)hp, sizeof(sdpcm_header_t), false);
+    //Serial.printf(SER_CYAN "Init Read: %ld, sdpcm_header_t struct size: %ld\n" SER_RESET, hp->len, sizeof(sdpcm_header_t));
+    if (res == true && hp->len > sizeof(sdpcm_header_t) && hp->notlen > 0 && hp->len == (hp->notlen^0xffff))
+    {
+        dlen = hp->len - sizeof(sdpcm_header_t);
+        while (n < dlen && n < maxlen)
+        {
+            blklen = MIN(MIN(maxlen - n, hp->len - n), IOCTL_MAX_BLKLEN);
+            cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, (uint8_t *)(&data[n]), blklen, false);
+            n += blklen;
+        }
+        //Read and discard remaining bytes over maxlen
+        while (n < dlen)
+        {
+            blklen = MIN(hp->len - n, IOCTL_MAX_BLKLEN);
+            cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, 0, blklen, false);
+            n += blklen;
+        }
+    }
+    return dlen > maxlen ? maxlen : dlen;
+}
+
+// Enable events
+int W4343WCard::ioctl_enable_evts(EVT_STR *evtp)
+{
+  current_evts = evtp;
+  memset(event_mask, 0, sizeof(event_mask));
+  while (evtp->num >= 0)
+  {
+      if (evtp->num / 8 < (int32_t)sizeof(event_mask))
+          SET_EVENT(event_mask, evtp->num);
+      evtp++;
+  }
+  return ioctl_set_data("event_msgs", 0, event_mask, sizeof(event_mask));
+}
+
+//----------------------------------------------------------------------
+// Return string corresponding to event status Added 02-21-25
+//----------------------------------------------------------------------
+const char *W4343WCard::ioctl_evt_status_str(int status)
+{
+    return(status>=0 && status<MAX_EVENT_STATUS ? event_status[status] : "?");
+}
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// Return string corresponding to event number, without "WLC_E_" prefix Added 02-21-25
+//----------------------------------------------------------------------
+const char *W4343WCard::ioctl_evt_str(int event)
+{
+    EVT_STR *evtp=current_evts;
+
+    while (evtp && evtp->num>=0 && evtp->num!=event)
+        evtp++;
+    return(evtp && evtp->num>=0 && strlen(evtp->str)>6 ? &evtp->str[6] : "?");
+}
+//----------------------------------------------------------------------
 
 ////////////////////////
 // End IRW new functions
@@ -1281,7 +1383,7 @@ void W4343WCard::onWLIRQInterruptHandler()
 {
   dataISRReceived = true;
   //Yeah yeah, no Serial in ISRs, I know....
-  Serial.println(SER_MAGENTA "WL_IRQ OOB Interrupt" SER_RESET);
+  //Serial.println(SER_MAGENTA "WL_IRQ OOB Interrupt" SER_RESET);
 }
 
 void W4343WCard::onDataInterruptHandler()
@@ -1303,12 +1405,13 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   m_highCapacity = false;
   m_version2 = false;
   fUseSDIO2 = useSDIO2;
+  m_wlIrqPin = wlIrqPin;
 
   uint8_t readResponse;
   u32Data u32d;
   uint8_t data[520];
   
-  Serial.printf("==========================\nW4343WCard::begin: %s\n==========================\n", fUseSDIO2 ? "SDIO2" : "SDIO");
+  Serial.printf("==========================\n4343WCard::begin: %s\n==========================\n", fUseSDIO2 ? "SDIO2" : "SDIO");
  
   initSDHC();
 
@@ -1329,10 +1432,10 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   //////////////////////////////////
   //out-of-band interrupt on INT pin
   //////////////////////////////////
-  if (wlIrqPin > -1) {
-    Serial.printf(SER_TRACE "Attaching OOB interrupt to pin %d\n" SER_RESET, wlIrqPin);
-    pinMode(wlIrqPin, INPUT);
-    attachInterrupt(digitalPinToInterrupt(wlIrqPin), onWLIRQInterruptHandler, FALLING);
+  if (m_wlIrqPin > -1) {
+    Serial.printf(SER_TRACE "Attaching OOB interrupt to pin %d\n" SER_RESET, m_wlIrqPin);
+    pinMode(m_wlIrqPin, INPUT);
+    attachInterrupt(digitalPinToInterrupt(m_wlIrqPin), onWLIRQInterruptHandler, FALLING);
   }
 
   ////////////////////
@@ -1570,7 +1673,7 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
 
   //This prints the last 44 bytes of NVRAM upload. Comment out for now
   //cardCMD53_read(SD_FUNC_BAK, 0xFFD4, data, 44);
-  
+
   //[19.146150]
   backplaneWindow_read32(SRAM_IOCTRL_REG, &u32d.uint32); 
   backplaneWindow_read32(SRAM_RESETCTRL_REG, &u32d.uint32);
@@ -1650,8 +1753,10 @@ bool W4343WCard::begin(bool useSDIO2, int8_t wlOnPin, int8_t wlIrqPin, int8_t ex
   backplaneWindow_write32(SB_INT_STATUS_REG, 0x80);
 
   cardCMD53_read(SD_FUNC_RAD, SB_32BIT_WIN, data, 64, false);
+
+  dataISRReceived = false;
   
-  Serial.printf("\n==============================\nEnd W4343WCard::begin: %s\n==============================\n", fUseSDIO2 ? "SDIO2" : "SDIO");
+  Serial.printf("\n==============================\nEnd 4343WCard::begin: %s\n==============================\n", fUseSDIO2 ? "SDIO2" : "SDIO");
  
   return true;
 }
@@ -1674,6 +1779,38 @@ uint32_t W4343WCard::kHzSdClk() {
 }
 //------------------------------------------------------------------------------
 
+
+void W4343WCard::printResponse(bool return_value)
+{
+  Serial.printf("RSP: 0x%4.4X  0x%4.4X  0x%4.4X  0x%4.4X   RET: 0x%02X\n",m_psdhc->CMD_RSP0, m_psdhc->CMD_RSP1, m_psdhc->CMD_RSP2, m_psdhc->CMD_RSP3, return_value);
+}
+
+void W4343WCard::printMACAddress(uint8_t * data)
+{
+  for (uint8_t i = 0; i < 6; i++) {
+    Serial.printf("%s%02X", i ? ":" : "", data[i]);
+  }
+}
+
+// Display SSID
+void W4343WCard::printSSID(uint8_t * data)
+{
+  int i = *data++;
+
+  if (i == 0 || *data == 0) {
+    Serial.printf("[hidden]");
+  } else if (i <= SSID_MAXLEN) {
+    Serial.printf(SER_GREEN);
+    while (i-- > 0) {
+      char c = static_cast<char>(*data++); 
+      Serial.print(c);
+    }
+    Serial.printf(SER_RESET);
+  } else {
+    Serial.printf("[invalid length %u]", i);
+  }
+}
+
 //------------------------------------------------------------------------------
 // Display fields in structure Added 02-21-25.
 // Fields in descriptor are num:id (little-endian) or num:id (big_endian)
@@ -1694,8 +1831,8 @@ void W4343WCard::disp_fields(void *data, char *fields, int maxlen)
         if (*strs > ' ')
         {
             while (*strs >= '0')
-                putchar(*strs++);
-            putchar('=');
+                Serial.printf("%c",*strs++);
+            Serial.printf("%c",'=');
             if (dlen <= 4)
             {
                 val = 0;
@@ -1707,7 +1844,7 @@ void W4343WCard::disp_fields(void *data, char *fields, int maxlen)
             {
                 for (n=0; n<dlen; n++)
                     Serial.printf("%02X", *dp++);
-                putchar(' ');
+                Serial.printf("%c",' ');
             }
         }
         else
@@ -1744,38 +1881,5 @@ void W4343WCard::disp_bytes(uint8_t *data, int len)
 {
     while (len--)
        Serial.printf("%02x ", *data++);
-}
-//----------------------------------------------------------------------
-
-//----------------------------------------------------------------------
-// Return string corresponding to event status Added 02-21-25
-//----------------------------------------------------------------------
-const char *W4343WCard::ioctl_evt_status_str(int status)
-{
-    return(status>=0 && status<MAX_EVENT_STATUS ? event_status[status] : "?");
-}
-//----------------------------------------------------------------------
-
-//----------------------------------------------------------------------
-// Return string corresponding to event number, without "WLC_E_" prefix Added 02-21-25
-//----------------------------------------------------------------------
-const char *W4343WCard::ioctl_evt_str(int event)
-{
-    EVT_STR *evtp=current_evts;
-
-    while (evtp && evtp->num>=0 && evtp->num!=event)
-        evtp++;
-    return(evtp && evtp->num>=0 && strlen(evtp->str)>6 ? &evtp->str[6] : "?");
-}
-//----------------------------------------------------------------------
-
-//----------------------------------------------------------------------
-// Set 2 integers in IOCTL variable Added 02-21-25
-//----------------------------------------------------------------------
-int W4343WCard::ioctl_set_intx2(const char *name, int wait_msec, int val1, int val2)
-{
-    int data[2] = {val1, val2};
-
-    return(ioctl_cmd(WLC_SET_VAR, name, wait_msec, 1, data, 8));
 }
 //----------------------------------------------------------------------

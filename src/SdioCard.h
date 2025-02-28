@@ -99,134 +99,129 @@ class W4343WCard  {
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
     uint32_t __attribute__((error("use sectorCount()"))) cardSize();
 #endif  // DOXYGEN_SHOULD_SKIP_THIS
-  /**
-   * \return code for the last error. See SdCardInfo.h for a list of error codes.
-   */
-  uint8_t errorCode() const;
-  /** \return error data for last error. */
-  uint32_t errorData() const;
-  /** \return error line for last error. Tmp function for debug. */
-  uint32_t errorLine() const;
-  /** \return the SD clock frequency in kHz. */
-  uint32_t kHzSdClk();
+    /**
+     * \return code for the last error. See SdCardInfo.h for a list of error codes.
+     */
+    uint8_t errorCode() const;
+    /** \return error data for last error. */
+    uint32_t errorData() const;
+    /** \return error line for last error. Tmp function for debug. */
+    uint32_t errorLine() const;
+    /** \return the SD clock frequency in kHz. */
+    uint32_t kHzSdClk();
 
-  /** Read one data sector in a multiple sector read sequence
-   *
-   * \param[out] dst Pointer to the location for the data to be read.
-   *
-   * \return true for success or false for failure.
-   */
-  bool readData(uint8_t* dst);
-
-
-
-  ///////////////////////////
-  // IRW new public functions
-  ///////////////////////////
-  void getMACAddress();
-  void printMACAddress(uint8_t * data);
-  void printSSID(uint8_t * data);
-  void getFirmwareVersion();
-  void ScanNetworks();
-  void JoinNetworks(const char *ssID, const char *passphrase, int security);
-
-  void disp_fields(void *data, char *fields, int maxlen);
-  void disp_block(uint8_t *data, int len);
-  void disp_bytes(uint8_t *data, int len);
-  const char *ioctl_evt_status_str(int status);
-  const char *ioctl_evt_str(int event);
-  int ioctl_set_intx2(const char *name, int wait_msec, int val1, int val2);
-  
+    ///////////////////////////
+    // IRW new public functions
+    ///////////////////////////
+    void getMACAddress();
+    void getFirmwareVersion();
+    void getCLMVersion();
+    void postInitSettings();
+    void pollEvents();
+    void ScanNetworks();
+    void JoinNetworks(const char *ssID, const char *passphrase, int security);
   ///////////////////////////////
   // End IRW new public functions
   ///////////////////////////////
   
   private:
-  static const uint8_t IDLE_STATE = 0;
-  static const uint8_t READ_STATE = 1;
-  static const uint8_t WRITE_STATE = 2;
-  uint32_t m_curSector;
-  uint8_t m_curState = IDLE_STATE;
-  static volatile bool fUseSDIO2;
+    static const uint8_t IDLE_STATE = 0;
+    static const uint8_t READ_STATE = 1;
+    static const uint8_t WRITE_STATE = 2;
+    uint32_t m_curSector;
+    uint8_t m_curState = IDLE_STATE;
+    static volatile bool fUseSDIO2;
+    int8_t m_wlIrqPin = -1;
 
-  // move helper functions into class.
-  typedef bool (W4343WCard::*pcheckfcn)();
-  bool cardCommand(uint32_t xfertyp, uint32_t arg);
-  void enableSDIO(bool enable);
-  void enableDmaIrs();
-  void initSDHC();
-  bool isBusyCommandComplete();
-  bool isBusyCommandInhibit();
-  void setSdclk(uint32_t kHzMax);
-  bool waitTimeout(pcheckfcn fcn);
-  inline bool setSdErrorCode(uint8_t code, uint32_t line);
+    // move helper functions into class.
+    typedef bool (W4343WCard::*pcheckfcn)();
+    bool cardCommand(uint32_t xfertyp, uint32_t arg);
+    void enableSDIO(bool enable);
+    void enableDmaIrs();
+    void initSDHC();
+    bool isBusyCommandComplete();
+    bool isBusyCommandInhibit();
+    void setSdclk(uint32_t kHzMax);
+    bool waitTimeout(pcheckfcn fcn);
+    inline bool setSdErrorCode(uint8_t code, uint32_t line);
+    
+    /////////////////////////////////////////////
+    void printRegs(uint32_t line);
+    static void sdISR();
+    static void sdISR2(); // one for second SDIO
+    static W4343WCard *s_pSdioCards[2];
+    void gpioMux(uint8_t mode);
+    void initClock();
+    uint32_t baseClock();
+    
+    ////////////////////
+    // IRW new functions
+    ////////////////////
+  void makeSDIO_DAT1();
+  void makeGPIO_DAT1();
+  bool SDIOEnableFunction(uint8_t functionEnable);
+  bool SDIODisableFunction(uint8_t functionEnable);
+  bool configureOOBInterrupt();
+  static volatile bool dataISRReceived;
+  static void onWLIRQInterruptHandler();
+  static void onDataInterruptHandler();
+  bool prepareDataTransfer(uint8_t *buffer, uint16_t length) ;
+  bool completeDataTransfer() ;
   
-  /////////////////////////////////////////////
-  static void   sdISR();
-  static void   sdISR2(); // one for second SDIO
-  static W4343WCard *s_pSdioCards[2];
-  void   gpioMux(uint8_t mode);
-  void   initClock();
-  uint32_t   baseClock();
+  bool cardCMD52_read(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, bool logOutput = true);
+  bool cardCMD52_write(uint32_t functionNumber, uint32_t registerAddress, uint8_t data, bool logOutput = true);
+  bool cardCMD52(uint32_t functionNumber, uint32_t registerAddress, uint8_t data, bool write, bool readAfterWriteFlag, uint8_t * response, bool logOutput);
   
-  ////////////////////
-  // IRW new functions
-  ////////////////////
- void makeSDIO_DAT1();
- void makeGPIO_DAT1();
- bool SDIOEnableFunction(uint8_t functionEnable);
- bool SDIODisableFunction(uint8_t functionEnable);
- bool configureOOBInterrupt();
- static volatile bool dataISRReceived;
- static void onWLIRQInterruptHandler();
- static void onDataInterruptHandler();
- bool prepareDataTransfer(uint8_t *buffer, uint16_t length) ;
- bool completeDataTransfer() ;
- 
- 
- bool cardCMD52_read(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, bool logOutput = true);
- bool cardCMD52_write(uint32_t functionNumber, uint32_t registerAddress, uint8_t data, bool logOutput = true);
- bool cardCMD52(uint32_t functionNumber, uint32_t registerAddress, uint8_t data, bool write, bool readAfterWriteFlag, uint8_t * response, bool logOutput);
- 
- void setBlockCountSize(bool blockMode, uint32_t functionNumber, uint32_t size);
- bool cardCMD53_read(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, uint32_t size, bool logOutput = true);
- bool cardCMD53_write(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, uint32_t size, bool logOutput = true);
- bool cardCMD53(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, uint32_t size, bool write, bool logOutput);
- 
- void setBackplaneWindow(uint32_t addr);
- uint32_t setBackplaneWindow_retOffset(uint32_t addr);
- uint32_t backplaneWindow_read32(uint32_t addr, uint32_t *valp);
- uint32_t backplaneWindow_write32(uint32_t addr, uint32_t val);
+  void setBlockCountSize(bool blockMode, uint32_t functionNumber, uint32_t size);
+  bool cardCMD53_read(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, uint32_t size, bool logOutput = true);
+  bool cardCMD53_write(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, uint32_t size, bool logOutput = true);
+  bool cardCMD53(uint32_t functionNumber, uint32_t registerAddress, uint8_t * buffer, uint32_t size, bool write, bool logOutput);
+  
+  void setBackplaneWindow(uint32_t addr);
+  uint32_t setBackplaneWindow_retOffset(uint32_t addr);
+  uint32_t backplaneWindow_read32(uint32_t addr, uint32_t *valp);
+  uint32_t backplaneWindow_write32(uint32_t addr, uint32_t val);
 
- bool checkValidFirmware(size_t len, uintptr_t source);
- bool uploadFirmware(size_t firmwareSize, uintptr_t source);
- bool uploadNVRAM(size_t nvRAMSize, uintptr_t source);
+  bool checkValidFirmware(size_t len, uintptr_t source);
+  bool uploadFirmware(size_t firmwareSize, uintptr_t source);
+  bool uploadNVRAM(size_t nvRAMSize, uintptr_t source);
+  bool uploadCLM();
 
- void printResponse(bool return_value);
+  int set_iovar_mpc(uint8_t val);
+  int ioctl_get_uint32(const char * name, int wait_msec,  uint8_t *data);
+  int ioctl_set_uint32(const char *name, int wait_msec, uint32_t val);
+  int ioctl_set_intx2(const char *name, int wait_msec, int32_t val1, int32_t val2);
+  int ioctl_wr_int32(int cmd, int wait_msec, int val);
+  int ioctl_get_data(const char *name, int wait_msec, uint8_t *data, int dlen, bool logOutput = true);
+  int ioctl_set_data(const char *name, int wait_msec, void *data, int len, bool logOutput = true);
+  int ioctl_wr_data(int cmd, int wait_msec, void *data, int len);
+  int ioctl_rd_data(int cmd, int wait_msec, void *data, int len);
+  int ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void *data, int dlen, bool logOutput = true);
+  int ioctl_cmd_poll_device(int wait_msec, int wr, void *data, int dlen, bool logOutput = true);
+  int ioctl_wait(int usec);
+  uint32_t ioctl_get_event(sdpcm_header_t *hp, uint8_t *data, int maxlen);
+  int ioctl_enable_evts(EVT_STR *evtp);  
+  const char *ioctl_evt_status_str(int status);
+  const char *ioctl_evt_str(int event);
 
-////////////////////////
-// End IRW new functions
-////////////////////////
- 
- bool   isBusyDat();
- bool   isBusyFifoRead();
- bool   isBusyFifoWrite();
- bool   isBusyTransferComplete();
+  void printResponse(bool return_value);
+  void printMACAddress(uint8_t * data);
+  void printSSID(uint8_t * data);
+  void disp_fields(void *data, char *fields, int maxlen);
+  void disp_block(uint8_t *data, int len);
+  void disp_bytes(uint8_t *data, int len);
 
- bool   waitTransferComplete();
- void   printRegs(uint32_t line);
+  ////////////////////////
+  // End IRW new functions
+  ////////////////////////
+  
+  bool isBusyDat();
+  bool isBusyFifoRead();
+  bool isBusyFifoWrite();
+  bool isBusyTransferComplete();
 
- bool set_iovar_mpc(uint8_t val);
- uint32_t ioctl_get_event(IOCTL_EVENT_HDR *hp, uint8_t *data, int maxlen);
- int ioctl_enable_evts(EVT_STR *evtp);
- int ioctl_set_uint32(const char *name, int wait_msec, uint32_t val);
- int ioctl_wr_int32(int cmd, int wait_msec, int val);
- int ioctl_get_data(const char *name, int wait_msec, uint8_t *data, int dlen);
- int ioctl_set_data(const char *name, int wait_msec, void *data, int len);
- int ioctl_cmd(int cmd, const char *name, int wait_msec, int wr, void *data, int dlen);
- bool ioctl_wait(int usec);
- int ioctl_wr_data(int cmd, int wait_msec, void *data, int len);
- int ioctl_rd_data(int cmd, int wait_msec, void *data, int len);
+  bool waitTransferComplete();
+
   /////////////////////////////////////////////////////
   // lets move global (static) variables into class instance.
   IMXRT_USDHC_t *m_psdhc;
