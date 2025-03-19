@@ -24,6 +24,9 @@ void setup()
   //EXT_LPO pin (optional, -1 to ignore)
   //////////////////////////////////////////
   if (wifiCard.begin(true, 33, 34, -1) == true) { 
+
+    wifiCard.postInitSettings();
+    
     Serial.println("initialization done");
 
     wifiCard.getMACAddress();
