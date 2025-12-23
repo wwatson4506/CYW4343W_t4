@@ -3,3 +3,4 @@ Library for testing the Murata 1DX / CYW4343W WiFi chip on uSDHC1 and uSDHC2 on 
 
 Requires modified core file from https://github.com/PaulStoffregen/cores/blob/master/teensy4/imxrt.h
 ## The updated imxrt.h file should be incorperated in the latest releases of TD1.60Bx.
+# Hope is high!!
