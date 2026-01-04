@@ -768,8 +768,9 @@ void W4343WCard::ScanNetworks()
     
     if (n > sizeof(escan_result)) {
       printMACAddress((uint8_t *)&erp->event.whd_event.addr);
-      Serial.printf(" %d ", __builtin_bswap16(erp->escan.bss_info->chanspec));
       printSSID(&erp->escan.bss_info->SSID_len);
+//      Serial.printf(" %d ", __builtin_bswap16(erp->escan.bss_info->chanspec)); // Incorrect
+      Serial.printf("' %d ", erp->escan.bss_info->chanspec & 0xFF); // Correct, No byte swapping
       Serial.printf("\n");
     }
   }
